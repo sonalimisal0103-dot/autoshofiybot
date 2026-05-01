@@ -2,3 +2,4 @@ telethon
 aiofiles
 aiohttp
 requests
+python-socks[asyncio]
