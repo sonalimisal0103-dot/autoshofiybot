@@ -9,11 +9,11 @@ from urllib.parse import urlparse
 
 
 # Config
-API_ID = 21124241
-API_HASH = "b7ddce3d3683f54eae73fa468"
-BOT_TOKEN = "7945871785:RChBaAEjwIF8F8hE" # Replace with your Bot Token
+API_ID = 37235723
+API_HASH = "880a876edaf529c8493b873d47821ec2"
+BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0" # Replace with your Bot Token
 ADMIN_ID = [5248903529, 8496671308, 1308204344, 7856977111, 7029965057, 5295792382, 1965289355, 8467239599, 7249106493, 7292047135, 8368859527, 7582867285] # Replace with your Admin ID(s)
-GROUP_ID = -1003200643667 # Replace with your Group ID
+GROUP_ID = -5280674882 # Replace with your Group ID
 
 # Files
 PREMIUM_FILE = "premium.json"
