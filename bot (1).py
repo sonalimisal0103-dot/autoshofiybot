@@ -2,18 +2,39 @@ from telethon import TelegramClient, events, Button
 from telethon.tl.types import KeyboardButtonCallback
 import requests, random, datetime, json, os, re, asyncio, time
 import string
+import hashlib
 import aiohttp
 import aiofiles
 from urllib.parse import urlparse
-import sys
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
+# ==================== PROXY CONFIG ====================
+PROXY1 = {
+    'proxy_type': 'socks5',
+    'addr': 'px490402.pointtoserver.com',
+    'port': 10780,
+    'username': 'purevpn0s8732217',
+    'password': 'i67s60ep',
+    'rdns': True
+}
+
+PROXY2 = {
+    'proxy_type': 'socks5',
+    'addr': 'dc.oxylabs.io',
+    'port': 8000,
+    'username': 'harshop01_6Mzjy',
+    'password': 'V=DMlz+qMinV_n85',
+    'rdns': True
+}
+
+PROXIES = [PROXY1, PROXY2]  # Will try one by one
+
 # ==================== CONFIG ====================
 API_ID = 37235723
 API_HASH = "880a876edaf529c8493b873d47821ec2"
-BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
+BOT_TOKEN = "8783810252:AAGx-qHaVp-kO49fDZZw1Ebj-_W4NK9PO2A"
 ADMIN_ID = [7077294261, 8496671308, 1308204344, 7856977111, 7029965057, 5295792382, 1965289355, 8467239599, 7249106493, 7292047135, 8368859527, 7582867285]
 GROUP_ID = -5280674882
 
@@ -29,8 +50,13 @@ PROXY_FILE = "proxy.json"
 ACTIVE_MTXT_PROCESSES = {}
 TEMP_WORKING_SITES = {}
 
-# ==================== UTILITY FUNCTIONS ====================
+# ==================== CREATE CLIENT WITH PROXY ROTATOR ====================
+client = None
 
+async def create_client_with_proxy():
+    global client
+    for i, proxy in enumerate(PROXIES):
+        print(f"🔄 Trying Proxy {i+1}:
 async def create_json_file(filename):
     if not os.path.exists(filename):
         async with aiofiles.open(filename, "w") as f:
