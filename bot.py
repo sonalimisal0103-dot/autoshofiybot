@@ -57,6 +57,10 @@ async def create_client_with_proxy():
     global client
     for i, proxy in enumerate(PROXIES):
         print(f"🔄 Trying Proxy {i+1}:
+
+asyncio.run(main())
+        
+
 async def create_json_file(filename):
     if not os.path.exists(filename):
         async with aiofiles.open(filename, "w") as f:
