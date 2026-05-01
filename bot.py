@@ -31,8 +31,8 @@ PROXY2 = {
     'rdns': True
 }
 
-# Choose Active Proxy (Change to PROXY2 if needed)
-ACTIVE_PROXY = PROXY1
+# Choose Active Proxy
+ACTIVE_PROXY = PROXY1   # Change to PROXY2 if needed
 
 # ==================== CONFIG ====================
 API_ID = 37235723
@@ -52,6 +52,18 @@ PROXY_FILE = "proxy.json"
 
 ACTIVE_MTXT_PROCESSES = {}
 TEMP_WORKING_SITES = {}
+
+# ==================== CLIENT WITH PROXY ====================
+client = TelegramClient(
+    'cc_bot',
+    API_ID,
+    API_HASH,
+    proxy=ACTIVE_PROXY,           # Proxy Added
+    connection_retries=30,
+    retry_delay=4,
+    request_retries=10,
+    flood_sleep_threshold=120
+)
 
 # ==================== UTILITY FUNCTIONS ====================
 
@@ -83,23 +95,7 @@ async def save_json(filename, data):
 def generate_key():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
 
-# ==================== MAIN CLIENT WITH PROXY ====================
-
-client = TelegramClient(
-    'cc_bot',
-    API_ID,
-    API_HASH,
-    proxy=ACTIVE_PROXY,          # Proxy Added Here
-    dc_id=5,                     # Force DC 5 (helps with reconnect issue)
-    connection_retries=30,
-    retry_delay=4,
-    request_retries=10,
-    flood_sleep_threshold=120
-)
-
-# ==================== YOUR EXISTING FUNCTIONS ====================
-# (All your functions like process_msh_cards, etc. remain unchanged)
-# ... paste all your other functions here if needed ...
+# ==================== MAIN ====================
 
 async def main():
     await initialize_files()
