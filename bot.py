@@ -82,6 +82,21 @@ async def save_approved(card, response):
     async with aiofiles.open(CC_FILE, "a", encoding="utf-8") as f:
         await f.write(f"{card} | APPROVED | {response}\n")
 
+
+# ================== NEW TXT FILE CHECK SYSTEM ==================
+async def read_cards_from_txt(file_path):
+    cards = []
+    async with aiofiles.open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = await f.read()
+        # Strong regex for cards
+        found = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', content)
+        for c in found:
+            cleaned = re.sub(r'[^0-9|]', '', c.replace(' ', ''))
+            if len(cleaned.split('|')) == 4:
+                cards.append(cleaned)
+    return list(set(cards))  # remove duplicates
+
+
 # ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
@@ -120,6 +135,7 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium_data)
     return True, f"✅ Success! Premium activated for {days} days."
 
+
 # ================== BOT ==================
 client = TelegramClient('stripe_bot', API_ID, API_HASH)
 
@@ -129,69 +145,104 @@ async def start(event):
         return await event.reply("🚫 You are banned!")
     
     help_text = (
-        "**🔥 Stripe Checker Bot**\n\n"
+        "**🔥 NEW STRIPE CHECKER BOT v2.0**\n\n"
+        "• Send `.txt` file with cards → Auto check\n"
         "• `/mst` + cards → Mass check\n"
-        "• `/key <key>` → Redeem premium key\n"
-        "• Example: `/mst 5443170628782539|06|30|222`\n\n"
-        "Owner: Use `/genkey <days>` to generate keys"
+        "• `/key <key>` → Redeem premium key\n\n"
+        "Example card: `5443170628782539|06|30|222`\n"
+        "Owner: `/genkey <days>`"
     )
     await event.reply(help_text)
+
+
+# ================== NEW DOCUMENT HANDLER (TXT FILE) ==================
+@client.on(events.NewMessage())
+async def document_handler(event):
+    if not event.document or await is_banned_user(event.sender_id):
+        return
+    
+    filename = event.file.name or ""
+    if not filename.lower().endswith('.txt'):
+        return
+    
+    if not await is_premium_user(event.sender_id) and event.sender_id != OWNER_ID:
+        return await event.reply("❌ Premium users only for .txt check!")
+    
+    await event.reply("📂 **TXT File Detected**\nDownloading & Processing...")
+    
+    file_path = f"./temp_{event.sender_id}.txt"
+    await event.download_media(file_path)
+    
+    cards = await read_cards_from_txt(file_path)
+    os.remove(file_path)
+    
+    if not cards:
+        return await event.reply("❌ No valid cards found in TXT file!")
+    
+    cards = cards[:100]  # limit
+    await event.reply(f"✅ **Found {len(cards)} cards**\nStarting New UI Check...")
+    asyncio.create_task(process_mass(event, cards))
+
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
     if event.sender_id != OWNER_ID:
-        return await event.reply("❌ Owner only command!")
-    
+        return await event.reply("❌ Owner only!")
     days = int(event.pattern_match.group(1) or 30)
     key = await generate_key(days)
     await event.reply(f"✅ **New Key Generated**\n`{key}`\nValid for **{days}** days")
+
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
 async def redeem(event):
     if await is_banned_user(event.sender_id):
         return await event.reply("🚫 Banned!")
-    
     key = event.pattern_match.group(1)
     if not key:
         return await event.reply("Usage: `/key YOURKEYHERE`")
-    
     success, msg = await redeem_key(event.sender_id, key)
     await event.reply(msg)
+
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]mst'))
 async def mst(event):
     if await is_banned_user(event.sender_id):
         return await event.reply("🚫 Banned!")
     
-    # === DEBUG ===
     if event.reply_to_msg_id:
         reply = await event.get_reply_message()
         text = reply.text or ""
-        debug_msg = await event.reply("🔍 Debug: Using replied message")
     else:
         text = event.raw_text
-        debug_msg = await event.reply("🔍 Debug: Using command text")
 
-    print(f"[DEBUG] Raw text: {text}")
-
-    # Stronger regex
-    cards = re.findall(r'\d{15,16}\s*\|\s*\d{1,2}\s*\|\s*\d{2,4}\s*\|\s*\d{3,4}', text)
-    cards = [re.sub(r'\s+', '', c) for c in cards]
-
-    print(f"[DEBUG] Found {len(cards)} cards: {cards}")
+    cards = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', text)
+    cards = [re.sub(r'[^0-9|]', '', c.replace(' ', '')) for c in cards]
 
     if not cards:
-        return await event.reply("❌ No valid cards found!\n\nCorrect format:\n`5443170628782539|06|30|222`")
+        return await event.reply("❌ No valid cards found!\nFormat: `5443170628782539|06|30|222`")
 
     cards = cards[:80]
-    await event.reply(f"✅ Starting check on **{len(cards)}** cards...")
+    await event.reply(f"🚀 **New Check Started**\n**{len(cards)}** cards loaded...")
     asyncio.create_task(process_mass(event, cards))
 
 
+# ================== NEW FANCY UI CHECKING ==================
 async def process_mass(event, cards):
     total = len(cards)
     checked = approved = 0
-    status_msg = await event.reply(f"🔥 Checking **{total}** cards...")
+    live = declined = 0
+    
+    # Beautiful Progress Message
+    status_msg = await event.reply(
+        "╔══════════════════════╗\n"
+        "║   🔥 STRIPE CHECKER v2.0   ║\n"
+        "╠══════════════════════╣\n"
+        f"║ Total Cards : **{total}**     ║\n"
+        f"║ Approved    : **0**           ║\n"
+        f"║ Declined    : **0**           ║\n"
+        f"║ Progress    : **0%**          ║\n"
+        "╚══════════════════════╝"
+    )
 
     for i in range(0, len(cards), 8):
         batch = cards[i:i+8]
@@ -205,22 +256,49 @@ async def process_mass(event, cards):
             checked += 1
             if res.get("Status") == "Approved":
                 approved += 1
+                live += 1
                 await save_approved(card, res.get("Response"))
-                await event.reply(f"💎 **APPROVED**\n`{card}`\n{res.get('Response')}")
+                await event.reply(
+                    f"**💎 LIVE HIT!**\n"
+                    f"`{card}`\n"
+                    f"**Response:** {res.get('Response')[:150]}"
+                )
+            else:
+                declined += 1
 
+            progress = int((checked / total) * 100)
+            
             try:
-                await status_msg.edit(f"**Progress**\n✅ Approved: **{approved}**\n🔄 Checked: **{checked}/{total}**")
+                await status_msg.edit(
+                    "╔══════════════════════╗\n"
+                    "║   🔥 STRIPE CHECKER v2.0   ║\n"
+                    "╠══════════════════════╣\n"
+                    f"║ Total Cards : **{total}**     ║\n"
+                    f"║ Approved    : **{approved}**     ║\n"
+                    f"║ Declined    : **{declined}**     ║\n"
+                    f"║ Progress    : **{progress}%**    ║\n"
+                    "╚══════════════════════╝"
+                )
             except:
                 pass
 
             await asyncio.sleep(1.2)
 
-    await status_msg.edit(f"✅ **Finished!**\nApproved: **{approved}/{total}**")
+    await status_msg.edit(
+        "╔══════════════════════╗\n"
+        "║     ✅ CHECK FINISHED     ║\n"
+        "╠══════════════════════╣\n"
+        f"║ Approved : **{approved}**         ║\n"
+        f"║ Declined : **{declined}**         ║\n"
+        f"║ Total    : **{total}**            ║\n"
+        "╚══════════════════════╝\n\n"
+        "❤️ Thank you for using New Stripe Bot!"
+    )
 
 
 # ================== RUN ==================
 async def main():
-    print("🚀 Stripe Bot Started | redbluechair.com | Key System Active")
+    print("🚀 Stripe Bot v2.0 Started | TXT + New UI Active")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
