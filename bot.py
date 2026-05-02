@@ -72,7 +72,7 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== FIXED CHECKER ==================
+# ================== FIXED CHECKER (Sahi Logic) ==================
 async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] CHECKING → {card}")
@@ -87,12 +87,13 @@ async def check_card(card: str):
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
                 print(f"[{current_time}] STATUS: {r.status}")
-                print(f"[{current_time}] RESPONSE: {text[:500]}")
+                print(f"[{current_time}] FULL RESPONSE: {text}")
 
                 lower = text.lower()
 
+                # YOUR CONDITION
                 if "order approved" in lower or "approved" in lower or "success" in lower or "charged" in lower:
-                    print(f"[{current_time}] ✅ ORDER APPROVED → CHARGED $1")
+                    print(f"[{current_time}] ✅ ORDER APPROVED - CHARGED $1")
                     return {"status": "Approved", "response": "Charged $1"}
                 else:
                     print(f"[{current_time}] ❌ ORDER NOT APPROVED / DECLINED")
