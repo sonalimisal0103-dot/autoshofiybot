@@ -72,7 +72,7 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== FIXED CHECKER (Sahi Logic) ==================
+# ================== MAIN CHECKER ==================
 async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] CHECKING → {card}")
@@ -89,14 +89,12 @@ async def check_card(card: str):
                 print(f"[{current_time}] STATUS: {r.status}")
                 print(f"[{current_time}] FULL RESPONSE: {text}")
 
-                lower = text.lower()
-
-                # YOUR CONDITION
-                if "order approved" in lower or "approved" in lower or "success" in lower or "charged" in lower:
-                    print(f"[{current_time}] ✅ ORDER APPROVED - CHARGED $1")
+                # TERA EXACT CONDITION
+                if "ORDER APPROVED" in text.upper():
+                    print(f"[{current_time}] ✅ ORDER APPROVED → CHARGED $1")
                     return {"status": "Approved", "response": "Charged $1"}
                 else:
-                    print(f"[{current_time}] ❌ ORDER NOT APPROVED / DECLINED")
+                    print(f"[{current_time}] ❌ ORDER NOT APPROVED")
                     return {"status": "Declined", "response": "Declined"}
 
     except Exception as e:
@@ -173,7 +171,7 @@ async def txt_handler(event):
         await asyncio.sleep(5)
 
 async def main():
-    print("🚀 Bot Started - Fixed Logic")
+    print("🚀 Bot Started - Final Fixed Logic")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
