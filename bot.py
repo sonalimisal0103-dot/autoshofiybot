@@ -86,11 +86,41 @@ async def check_card(card: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text}")
+                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text[:400]}")
 
                 if r.status == 200 and any(x in text.lower() for x in ["approved", "success", "live", "charged"]):
                     print(f"[{current_time}] ✅ LIVE HIT!")
                     return {"status": "Approved", "response": "Charged $1"}
                 else:
                     print(f"[{current_time}] ❌ DECLINED (Silent)")
-                    return {"status": "Declined", "response": "Decl
+                    return {"status": "Declined", "response": "Declined"}  # Silent for user
+
+    except Exception as e:
+        print(f"[{current_time}] ERROR: {e}")
+        return {"status": "Declined", "response": "Error"}
+
+async def send_approved(event, card):
+    msg = f"""
+**Approved ✅**
+━━━━━━━━━━━━━
+[ϟ] 𝗖𝗖 - `{card}`
+[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : Charged $1
+[ϟ] 𝗚𝗮𝘁𝗲 - Stripe Auth
+━━━━━━━━━━━━━
+"""
+    await event.reply(msg)
+
+# ================== BOT ==================
+@client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
+async def start(event):
+    if not await is_premium(event.sender_id):
+        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY`")
+    await event.reply("**🔥 Stripe Checker**\nSend `.txt` file (Only Charged Cards will show)")
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
+async def genkey(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("Owner only!")
+    days = int(event.pattern_match.group(1) or 30)
+    key = await generate_key(days)
+    await event.reply(f"✅ New Key:\n`{key}`
