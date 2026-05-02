@@ -72,7 +72,7 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== CHECKER WITH YOUR CONDITION ==================
+# ================== FIXED CHECKER ==================
 async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] CHECKING → {card}")
@@ -87,29 +87,16 @@ async def check_card(card: str):
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
                 print(f"[{current_time}] STATUS: {r.status}")
-                print(f"[{current_time}] RAW RESPONSE: {text[:500]}")
+                print(f"[{current_time}] RESPONSE: {text[:500]}")
 
-                try:
-                    data = json.loads(text)
-                    message = data.get("message", "").upper()
-                    status = data.get("status", "").upper()
+                lower = text.lower()
 
-                    if "ORDER APPROVED" in message or "APPROVED" in message or status == "APPROVED":
-                        print(f"[{current_time}] ✅ ORDER APPROVED - CHARGED $1")
-                        return {"status": "Approved", "response": "Charged $1"}
-                    elif "ORDER NOT APPROVED" in message or status == "DECLINED":
-                        print(f"[{current_time}] ❌ ORDER NOT APPROVED")
-                        return {"status": "Declined", "response": "Declined"}
-                    else:
-                        print(f"[{current_time}] ❌ UNKNOWN RESPONSE")
-                        return {"status": "Declined", "response": "Declined"}
-
-                except:
-                    # If not JSON
-                    if any(x in text.lower() for x in ["approved", "success", "charged"]):
-                        return {"status": "Approved", "response": "Charged $1"}
-                    else:
-                        return {"status": "Declined", "response": "Declined"}
+                if "order approved" in lower or "approved" in lower or "success" in lower or "charged" in lower:
+                    print(f"[{current_time}] ✅ ORDER APPROVED → CHARGED $1")
+                    return {"status": "Approved", "response": "Charged $1"}
+                else:
+                    print(f"[{current_time}] ❌ ORDER NOT APPROVED / DECLINED")
+                    return {"status": "Declined", "response": "Declined"}
 
     except Exception as e:
         print(f"[{current_time}] ERROR: {e}")
@@ -185,7 +172,7 @@ async def txt_handler(event):
         await asyncio.sleep(5)
 
 async def main():
-    print("🚀 Bot Started - Order Approved Logic")
+    print("🚀 Bot Started - Fixed Logic")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
