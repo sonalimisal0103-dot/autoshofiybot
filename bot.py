@@ -12,7 +12,6 @@ OWNER_ID = 7077294261
 
 PREMIUM_FILE = "premium.json"
 KEYS_FILE = "keys.json"
-CC_FILE = "approved.txt"
 
 PROXIES = [
     "dc.oxylabs.io:8000:harshop01_6Mzjy:V=DMlz+qMinV_n85",
@@ -39,6 +38,8 @@ async def save_json(filename, data):
         await f.write(json.dumps(data, indent=4))
 
 async def is_premium(user_id):
+    if int(user_id) == OWNER_ID:   # Owner always has access
+        return True
     data = await load_json(PREMIUM_FILE)
     uid = str(user_id)
     if uid not in data:
@@ -78,14 +79,11 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== CHARGE FUNCTION (Real) ==================
+# ================== CHARGE FUNCTION ==================
 async def charge_5_dollars(card: str):
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
         if len(yy) == 2: yy = "20" + yy
-
-        current_time = datetime.now().strftime('%H:%M:%S')
-        print(f"[{current_time}] CHECKING → {cc[:6]}******{cc[-4:]}")
 
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
@@ -108,9 +106,7 @@ async def charge_5_dollars(card: str):
                     return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
                     return {"status": "Declined", "response": "Declined"}
-
-    except Exception as e:
-        print(f"ERROR: {e}")
+    except:
         return {"status": "Declined", "response": "Error"}
 
 # ================== BEAUTIFUL UI ==================
@@ -132,7 +128,7 @@ async def send_approved(event, card, info):
 """
     await event.reply(msg)
 
-# ================== START ==================
+# ================== COMMANDS ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
@@ -186,7 +182,7 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting real $5 charge...")
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting...")
 
     for card in cards:
         result = await charge_5_dollars(card)
@@ -197,7 +193,7 @@ async def txt_handler(event):
         await asyncio.sleep(6)
 
 async def main():
-    print("🚀 WeAnimals $5 Charge Bot Started")
+    print("🚀 Bot Started Successfully")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
