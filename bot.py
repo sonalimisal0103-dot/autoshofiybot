@@ -8,10 +8,12 @@ API_ID = 37235723
 API_HASH = "880a876edaf529c8493b873d47821ec2"
 BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
 
+OWNER_ID = 7077294261
 ADMIN_ID = [7077294261]
 
 PREMIUM_FILE = "premium.json"
 BANNED_FILE = "banned_users.json"
+KEYS_FILE = "keys.json"
 CC_FILE = "approved.txt"
 
 # ================== STRIPE CHECKER ==================
@@ -80,6 +82,43 @@ async def save_approved(card, response):
     async with aiofiles.open(CC_FILE, "a", encoding="utf-8") as f:
         await f.write(f"{card} | APPROVED | {response}\n")
 
+# ================== KEY SYSTEM ==================
+async def generate_key(days: int = 30):
+    import secrets
+    key = "STRIPE-" + secrets.token_hex(8).upper()
+    data = await load_json(KEYS_FILE)
+    data[key] = {
+        "days": days,
+        "used": False,
+        "created": str(datetime.datetime.now())
+    }
+    await save_json(KEYS_FILE, data)
+    return key
+
+async def redeem_key(user_id, key: str):
+    data = await load_json(KEYS_FILE)
+    premium_data = await load_json(PREMIUM_FILE)
+    uid = str(user_id)
+    key = key.strip().upper()
+    
+    if key not in data or data[key].get("used"):
+        return False, "❌ Invalid or already used key!"
+    
+    days = data[key]["days"]
+    expiry = datetime.datetime.now() + datetime.timedelta(days=days)
+    
+    premium_data[uid] = {
+        "expiry": expiry.isoformat(),
+        "plan": f"{days} days"
+    }
+    
+    data[key]["used"] = True
+    data[key]["used_by"] = uid
+    data[key]["used_at"] = str(datetime.datetime.now())
+    
+    await save_json(KEYS_FILE, data)
+    await save_json(PREMIUM_FILE, premium_data)
+    return True, f"✅ Success! Premium activated for {days} days."
 
 # ================== BOT ==================
 client = TelegramClient('stripe_bot', API_ID, API_HASH)
@@ -88,16 +127,42 @@ client = TelegramClient('stripe_bot', API_ID, API_HASH)
 async def start(event):
     if await is_banned_user(event.sender_id):
         return await event.reply("🚫 You are banned!")
-    await event.reply("**🔥 Stripe Checker Bot**\nUse `/mst` + cards\nExample: `/mst 5443170628782539|06|30|222`")
+    
+    help_text = (
+        "**🔥 Stripe Checker Bot**\n\n"
+        "• `/mst` + cards → Mass check\n"
+        "• `/key <key>` → Redeem premium key\n"
+        "• Example: `/mst 5443170628782539|06|30|222`\n\n"
+        "Owner: Use `/genkey <days>` to generate keys"
+    )
+    await event.reply(help_text)
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
+async def genkey(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Owner only command!")
+    
+    days = int(event.pattern_match.group(1) or 30)
+    key = await generate_key(days)
+    await event.reply(f"✅ **New Key Generated**\n`{key}`\nValid for **{days}** days")
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
+async def redeem(event):
+    if await is_banned_user(event.sender_id):
+        return await event.reply("🚫 Banned!")
+    
+    key = event.pattern_match.group(1)
+    if not key:
+        return await event.reply("Usage: `/key YOURKEYHERE`")
+    
+    success, msg = await redeem_key(event.sender_id, key)
+    await event.reply(msg)
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]mst'))
 async def mst(event):
     if await is_banned_user(event.sender_id):
         return await event.reply("🚫 Banned!")
     
-    if event.is_private and not await is_premium_user(event.sender_id):
-        return await event.reply("Premium required in PM.")
-
     # === DEBUG ===
     if event.reply_to_msg_id:
         reply = await event.get_reply_message()
@@ -111,7 +176,7 @@ async def mst(event):
 
     # Stronger regex
     cards = re.findall(r'\d{15,16}\s*\|\s*\d{1,2}\s*\|\s*\d{2,4}\s*\|\s*\d{3,4}', text)
-    cards = [re.sub(r'\s+', '', c) for c in cards]   # Remove spaces
+    cards = [re.sub(r'\s+', '', c) for c in cards]
 
     print(f"[DEBUG] Found {len(cards)} cards: {cards}")
 
@@ -155,7 +220,7 @@ async def process_mass(event, cards):
 
 # ================== RUN ==================
 async def main():
-    print("🚀 Stripe Bot Started | redbluechair.com")
+    print("🚀 Stripe Bot Started | redbluechair.com | Key System Active")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
